@@ -5385,7 +5385,11 @@ function buildBrandTrend() {
 
 function applyView() {
   if (!STATE.data) return;
-  const wkRows = getViewRows();
+  const wkRows = getViewRows().map(r => (
+    r.wow_rev_pct === undefined && r.wow !== undefined
+      ? Object.assign({}, r, { wow_rev_pct: r.wow })
+      : r
+  ));
   const stats  = computeWeekStats(wkRows);
   const fullLabel = wkRows[0]?.week_full || STATE.currentWeek;
 

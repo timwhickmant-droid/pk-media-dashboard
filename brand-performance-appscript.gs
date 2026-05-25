@@ -136,7 +136,7 @@ function readRows(sh) {
     spend:    find(headers, /^spend$/i),
     revenue:  find(headers, /^revenue$/i),
     clicks:   find(headers, /clicks/i),
-    wow:      find(headers, /wow.*revenue|revenue.*wow|%\s*wow/i),
+    wow:      find(headers, /wow/i),
     roas:     find(headers, /^roas$/i),
     cpc:      find(headers, /^cpc$/i),
     note:     find(headers, /^notes?$/i)
@@ -149,7 +149,7 @@ function readRows(sh) {
     if (!brand) continue;
 
     out.push({
-      week:        String(row[idx.week] || '').trim(),
+      week:        normalizeWeek(idx.week >= 0 ? (display[i][idx.week] || row[idx.week]) : ''),
       brand:       normalizeBrand(brand),
       platform:    idx.platform >= 0 ? String(row[idx.platform] || '').trim() : '',
       spend:       toNum(idx.spend   >= 0 ? row[idx.spend]   : null),
@@ -157,7 +157,7 @@ function readRows(sh) {
       clicks:      toNum(idx.clicks  >= 0 ? row[idx.clicks]  : null),
       roas:        toNum(idx.roas    >= 0 ? row[idx.roas]    : null),
       cpc:         toNum(idx.cpc     >= 0 ? row[idx.cpc]     : null),
-      wow:         parsePct(idx.wow  >= 0 ? display[i][idx.wow] : null),
+      wow:         parsePct(idx.wow  >= 0 ? (display[i][idx.wow] || row[idx.wow]) : null),
       note:        idx.note >= 0 ? String(row[idx.note] || '').trim() : ''
     });
   }
@@ -287,6 +287,14 @@ function normalizeBrand(name) {
   return BRAND_ALIAS[k] || k;
 }
 
+function normalizeWeek(v) {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) {
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'MMM d yyyy');
+  }
+  return String(v).trim().replace(/,/g, '').replace(/\s+/g, ' ');
+}
+
 function toNum(v) {
   if (v === null || v === undefined || v === '') return null;
   if (typeof v === 'number') return v;
@@ -296,8 +304,11 @@ function toNum(v) {
 }
 
 function parsePct(s) {
-  if (s === null || s === undefined || s === '' || s === '-') return null;
-  var cleaned = String(s).replace(/[%\s,]/g, '');
+  if (s === null || s === undefined) return null;
+  if (typeof s === 'number') return s * (Math.abs(s) < 1 ? 100 : 1);
+  var str = String(s).trim();
+  if (str === '' || str === '-' || str === '—' || str === '–') return null;
+  var cleaned = str.replace(/[%\s,]/g, '').replace(/[−–—]/g, '-');
   var n = Number(cleaned);
   return isNaN(n) ? null : n;
 }
