@@ -5383,6 +5383,54 @@ function buildBrandTrend() {
   return order.map(w => trendBy[w]).filter(Boolean).map(t => Object.assign({}, t, { roas: t.spend ? t.revenue / t.spend : 0 }));
 }
 
+/* ═══════════════════════════════════════
+   Month-to-Date — computed from row-level data
+   The feed ships a static `mtd` array (and an empty `monthlyMtd`), so the MTD
+   table never changed with the selected week. Instead we sum `allRows` for the
+   month the selected week belongs to, cumulative through that week.
+═══════════════════════════════════════ */
+const MONTH_NAMES = { jan:'January', feb:'February', mar:'March', apr:'April',
+  may:'May', jun:'June', jul:'July', aug:'August', sep:'September',
+  oct:'October', nov:'November', dec:'December' };
+
+// "May 31 June 6 2026" -> { month:'May', year:'2026' } (uses the week's START month)
+function monthKeyFromWeekFull(wf) {
+  const s = String(wf || '').trim();
+  const first = s.split(/\s+/)[0] || '';
+  const month = MONTH_NAMES[first.slice(0, 3).toLowerCase()] || first;
+  const ym = s.match(/(\d{4})\s*$/);
+  return { month, year: ym ? ym[1] : '' };
+}
+const weekNumOf = lbl => { const m = /(\d+)/.exec(lbl || ''); return m ? +m[1] : 0; };
+
+// Cumulative month-to-date per brand, summed from allRows for the month the
+// selected week belongs to, up to and including that week. Returns
+// { label:'May 2026', rows:[{brand, mtd_spend, mtd_revenue, mtd_clicks}] } or null.
+function computeMonthToDate(allRows, revenueTrend, currentWeek) {
+  if (!allRows || !allRows.length || !currentWeek) return null;
+  const wfByLabel = {};
+  (revenueTrend || []).forEach(t => { if (t.week_label) wfByLabel[t.week_label] = t.week_full; });
+  const monthOfRow = r => monthKeyFromWeekFull(wfByLabel[r.week_label] || r.week).month;
+
+  const cur = monthKeyFromWeekFull(wfByLabel[currentWeek] || '');
+  if (!cur.month) return null;                       // can't resolve → caller falls back to feed
+  const curNum = weekNumOf(currentWeek);
+
+  const by = {};
+  allRows.forEach(r => {
+    if (monthOfRow(r) !== cur.month) return;         // same month only
+    if (weekNumOf(r.week_label) > curNum) return;    // up to the selected week
+    const b = r.brand;
+    if (!by[b]) by[b] = { brand: b, mtd_spend: 0, mtd_revenue: 0, mtd_clicks: 0 };
+    by[b].mtd_spend   += num(r.spend)   || 0;
+    by[b].mtd_revenue += num(r.revenue) || 0;
+    by[b].mtd_clicks  += num(r.clicks)  || 0;
+  });
+  const rows = Object.values(by);
+  if (!rows.length) return null;
+  return { label: (cur.month + ' ' + cur.year).trim(), rows };
+}
+
 function applyView() {
   if (!STATE.data) return;
   const wkRows = getViewRows().map(r => (
@@ -5393,11 +5441,16 @@ function applyView() {
   const stats  = computeWeekStats(wkRows);
   const fullLabel = wkRows[0]?.week_full || STATE.currentWeek;
 
-  // Find which month tab the selected week belongs to, then use that month's MTD
-  const weekToTab = STATE.data.meta?.week_to_tab || {};
-  const monthForWeek = weekToTab[STATE.currentWeek] || STATE.data.meta?.source_tab;
-  const monthBlock   = STATE.data.monthlyMtd?.[monthForWeek];
-  const mtdSource    = monthBlock ? monthBlock.mtd : (STATE.data.mtd || []);
+  // Month-to-date: compute live from row-level allRows for the month the selected
+  // week belongs to (cumulative through that week). Falls back to the feed's
+  // monthlyMtd block / static mtd array only when row data can't be resolved.
+  const weekToTab    = STATE.data.meta?.week_to_tab || {};
+  const computedMtd  = computeMonthToDate(STATE.data.allRows, STATE.data.revenueTrend, STATE.currentWeek);
+  const fallbackTab  = weekToTab[STATE.currentWeek] || STATE.data.meta?.source_tab;
+  const monthBlock   = STATE.data.monthlyMtd?.[fallbackTab];
+  const monthForWeek = computedMtd ? computedMtd.label : fallbackTab;
+  const mtdSource    = computedMtd ? computedMtd.rows
+                     : (monthBlock ? monthBlock.mtd : (STATE.data.mtd || []));
 
   const mtd = STATE.activeBrand
     ? mtdSource.filter(m => m.brand === STATE.activeBrand)
