@@ -2576,6 +2576,13 @@ body.density-compact .table-wrap { font-size: 11.5px; }
   font-size: 10px; font-weight: 600; color: var(--muted);
 }
 .week-picker-item.selected .week-picker-item-rev { color: #60a5fa; }
+.week-picker-month {
+  font-weight: 700;
+  background: rgba(59,130,246,0.06);
+  border: 1px solid rgba(59,130,246,0.18);
+  margin-bottom: 2px;
+}
+.week-picker-month:hover { background: rgba(59,130,246,0.12); }
 .week-picker-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 11px; }
 .week-picker-group-label {
   padding: 10px 12px 4px;
@@ -4872,9 +4879,15 @@ function renderMeta(meta, weeklyDetail) {
   }
 
   // Page 2 + 3 labels
-  set('p2Range',         meta.week_range || '');
+  const _periodBadge = STATE.currentMonth
+    ? STATE.currentMonth
+    : formatWeekRange(meta.week_range || '');
+  set('p2Range',         _periodBadge);
   set('p2Tag',           (meta.period_label || '').split('·')[0].trim());
-  set('weekTotalsBadge', meta.week_range || '');
+  set('weekTotalsBadge', _periodBadge);
+  // Section header: "Week Totals" vs "Month Totals"
+  const wkTotalsLabel = document.querySelector('.section-label-text');
+  if (wkTotalsLabel) wkTotalsLabel.textContent = STATE.currentMonth ? 'Month Totals' : 'Week Totals';
   set('p3Tag',           meta.source_tab  || '');
   set('mtdBadge',        meta.source_tab  || '');
 }
@@ -5324,6 +5337,7 @@ function buildSpending(daily) {
 const STATE = {
   data: null,
   currentWeek: null,
+  currentMonth: null,
   activeBrand: null,
   sortKey: null,
   sortDir: 'desc',
@@ -5362,7 +5376,9 @@ function computeWeekStats(rows) {
 function getViewRows() {
   const all = STATE.data?.allRows || [];
   let rows = all.length ? all : (STATE.data?.weeklyDetail || []);
-  if (STATE.currentWeek && all.length) rows = rows.filter(r => r.week_label === STATE.currentWeek);
+  if (all.length && (STATE.currentWeek || STATE.currentMonth)) rows = rows.filter(rowInSelection);
+  // For a full-month view, collapse the month's weekly rows into one per campaign.
+  if (all.length && STATE.currentMonth) rows = aggregateRowsByCampaign(rows);
   if (STATE.activeBrand) rows = rows.filter(r => r.brand === STATE.activeBrand);
   return rows;
 }
@@ -5403,6 +5419,72 @@ function monthKeyFromWeekFull(wf) {
 }
 const weekNumOf = lbl => { const m = /(\d+)/.exec(lbl || ''); return m ? +m[1] : 0; };
 
+/* ── Full-month selection support ──────────────────────────────────────────
+   A period is either a single week (STATE.currentWeek = 'W6') or a whole month
+   (STATE.currentMonth = 'May 2026'); the two are mutually exclusive. A row's
+   month is derived from its week's START date, matching computeMonthToDate. */
+function monthKeyFromRow(r) {
+  const wf = (r && (r.week || r.week_full)) ||
+    ((STATE.data?.revenueTrend || []).find(t => t.week_label === (r && r.week_label))?.week_full) || '';
+  const k = monthKeyFromWeekFull(wf);
+  return k.month ? (k.month + (k.year ? ' ' + k.year : '')).trim() : '';
+}
+
+// Row passes the active week/month filter (true when nothing is selected).
+function rowInSelection(r) {
+  if (STATE.currentMonth) return monthKeyFromRow(r) === STATE.currentMonth;
+  if (STATE.currentWeek)  return r.week_label === STATE.currentWeek;
+  return true;
+}
+
+// Distinct months in the feed (oldest→newest) with summed totals, for pickers.
+function buildMonthTotals() {
+  const all = STATE.data?.allRows || [];
+  const order = [], by = {};
+  all.forEach(r => {
+    const key = monthKeyFromRow(r);
+    if (!key) return;
+    if (!by[key]) { by[key] = { month: key, revenue: 0, spend: 0, clicks: 0 }; order.push(key); }
+    by[key].revenue += num(r.revenue) || 0;
+    by[key].spend   += num(r.spend)   || 0;
+    by[key].clicks  += num(r.clicks)  || 0;
+  });
+  return order.map(k => { const m = by[k]; return Object.assign({}, m, { roas: m.spend ? m.revenue / m.spend : 0 }); });
+}
+
+// Full-month per-brand totals for the MTD table when a whole month is selected.
+function computeMonthTotalsByBrand(allRows, monthKey) {
+  if (!allRows || !allRows.length || !monthKey) return null;
+  const by = {};
+  allRows.forEach(r => {
+    if (monthKeyFromRow(r) !== monthKey) return;
+    const b = r.brand;
+    if (!by[b]) by[b] = { brand: b, mtd_spend: 0, mtd_revenue: 0, mtd_clicks: 0 };
+    by[b].mtd_spend   += num(r.spend)   || 0;
+    by[b].mtd_revenue += num(r.revenue) || 0;
+    by[b].mtd_clicks  += num(r.clicks)  || 0;
+  });
+  const rows = Object.values(by);
+  return rows.length ? { label: monthKey, rows } : null;
+}
+
+// Collapse multiple weekly rows into one row per brand+platform (for month views).
+function aggregateRowsByCampaign(rows) {
+  const by = {}, order = [];
+  rows.forEach(r => {
+    const key = (r.brand || '') + '||' + (r.platform || '');
+    if (!by[key]) { by[key] = { brand: r.brand, platform: r.platform, spend: 0, revenue: 0, clicks: 0, note: r.note || '' }; order.push(key); }
+    by[key].spend   += num(r.spend)   || 0;
+    by[key].revenue += num(r.revenue) || 0;
+    by[key].clicks  += num(r.clicks)  || 0;
+    if (!by[key].note && r.note) by[key].note = r.note;
+  });
+  return order.map(k => {
+    const a = by[k];
+    return Object.assign({}, a, { roas: a.spend ? a.revenue / a.spend : null, cpc: a.clicks ? a.spend / a.clicks : null });
+  });
+}
+
 // Cumulative month-to-date per brand, summed from allRows for the month the
 // selected week belongs to, up to and including that week. Returns
 // { label:'May 2026', rows:[{brand, mtd_spend, mtd_revenue, mtd_clicks}] } or null.
@@ -5439,13 +5521,20 @@ function applyView() {
       : r
   ));
   const stats  = computeWeekStats(wkRows);
-  const fullLabel = wkRows[0]?.week_full || STATE.currentWeek;
+  // Resolve the human-readable period label. allRows use `week` not `week_full`,
+  // so look up week_full from revenueTrend by the selected week label.
+  const _wkFull = STATE.currentMonth
+    ? STATE.currentMonth
+    : ((STATE.data?.revenueTrend || []).find(t => t.week_label === STATE.currentWeek)?.week_full || STATE.currentWeek);
+  const fullLabel = _wkFull;
 
-  // Month-to-date: compute live from row-level allRows for the month the selected
-  // week belongs to (cumulative through that week). Falls back to the feed's
-  // monthlyMtd block / static mtd array only when row data can't be resolved.
+  // Month-to-date: compute live from row-level allRows. For a full-month view we
+  // sum the entire month; otherwise we sum the selected week's month cumulatively
+  // through that week. Falls back to the feed's monthlyMtd / static mtd array.
   const weekToTab    = STATE.data.meta?.week_to_tab || {};
-  const computedMtd  = computeMonthToDate(STATE.data.allRows, STATE.data.revenueTrend, STATE.currentWeek);
+  const computedMtd  = STATE.currentMonth
+    ? computeMonthTotalsByBrand(STATE.data.allRows, STATE.currentMonth)
+    : computeMonthToDate(STATE.data.allRows, STATE.data.revenueTrend, STATE.currentWeek);
   const fallbackTab  = weekToTab[STATE.currentWeek] || STATE.data.meta?.source_tab;
   const monthBlock   = STATE.data.monthlyMtd?.[fallbackTab];
   const monthForWeek = computedMtd ? computedMtd.label : fallbackTab;
@@ -5458,16 +5547,25 @@ function applyView() {
 
   const trend = buildBrandTrend();
 
-  // revenueTrend has per-week totals — use them immediately for KPI cards
-  const trendArr = STATE.data?.revenueTrend || [];
-  const wkIdx    = trendArr.findIndex(t => t.week_label === STATE.currentWeek);
-  const currT    = wkIdx >= 0 ? trendArr[wkIdx]     : null;
-  const prevT    = wkIdx >  0 ? trendArr[wkIdx - 1] : null;
+  // Current/previous period totals for the KPI "vs last …" deltas. In month view
+  // this is month-over-month; in week view it's week-over-week.
+  let currT = null, prevT = null;
+  if (STATE.currentMonth) {
+    const months = buildMonthTotals();
+    const mi = months.findIndex(m => m.month === STATE.currentMonth);
+    currT = mi >= 0 ? months[mi]     : null;
+    prevT = mi >  0 ? months[mi - 1] : null;
+  } else {
+    const trendArr = STATE.data?.revenueTrend || [];
+    const wkIdx    = trendArr.findIndex(t => t.week_label === STATE.currentWeek);
+    currT = wkIdx >= 0 ? trendArr[wkIdx]     : null;
+    prevT = wkIdx >  0 ? trendArr[wkIdx - 1] : null;
+  }
   const deltaWow = (c, p) => p && p > 0 ? Math.round(((c - p) / p) * 1000) / 10 : 0;
 
   // Prefer allRows (row-level detail) → revenueTrend totals → MTD fallback
   const hasAllRows       = (STATE.data?.allRows || []).length > 0;
-  const useWeekRows      = hasAllRows && !!STATE.currentWeek;
+  const useWeekRows      = hasAllRows && (!!STATE.currentWeek || !!STATE.currentMonth);
   const useTrendFallback = !useWeekRows && !!currT;
 
   const kpiSpend   = useWeekRows
@@ -5490,7 +5588,7 @@ function applyView() {
     platforms_profitable: stats.platforms_profitable,
     platforms_breakeven:  stats.platforms_breakeven,
     platforms_loss:       stats.platforms_loss,
-    period_label:         (STATE.activeBrand ? STATE.activeBrand + ' · ' : '') + ((() => { const ti = (STATE.data?.revenueTrend || []).find(t => t.week_label === STATE.currentWeek); return ti?.week_full ? formatWeekRange(ti.week_full) : 'Week of ' + STATE.currentWeek; })()),
+    period_label:         (STATE.activeBrand ? STATE.activeBrand + ' · ' : '') + (STATE.currentMonth ? STATE.currentMonth : ((() => { const ti = (STATE.data?.revenueTrend || []).find(t => t.week_label === STATE.currentWeek); return ti?.week_full ? formatWeekRange(ti.week_full) : 'Week of ' + STATE.currentWeek; })())),
     week_range:           fullLabel,
     source_tab:           monthForWeek,
     mtd_revenue:          kpiRevenue,
@@ -5558,6 +5656,13 @@ window.renderChartsWhenReady = function() {
 
 function applyWeek(weekLabel) {
   STATE.currentWeek = weekLabel;
+  STATE.currentMonth = null;
+  applyView();
+}
+
+function applyMonth(monthKey) {
+  STATE.currentMonth = monthKey;
+  STATE.currentWeek = null;
   applyView();
 }
 
@@ -5660,19 +5765,29 @@ function updateWeekPicker() {
     console.warn('[weekPicker] dropped duplicate week rows from feed:', dropped);
   }
 
-  // Group by source_tab (month), preserving the reversed (newest-first) order
+  // Group by month (derived from each week's start date), newest-first. Each group
+  // gets a "Full month" row at the top so the whole month can be selected.
   const items = [...seen.values()];
   const groups = {};
   const groupOrder = [];
   items.forEach(t => {
-    const tab = t.source_tab || 'Unknown';
-    if (!groups[tab]) { groups[tab] = []; groupOrder.push(tab); }
-    groups[tab].push(t);
+    const mk  = monthKeyFromWeekFull(t.week_full || '');
+    const key = mk.month ? (mk.month + (mk.year ? ' ' + mk.year : '')).trim() : (t.source_tab || 'Other');
+    if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+    groups[key].push(t);
   });
 
-  menu.innerHTML = groupOrder.map(tab => {
-    const itemsHtml = groups[tab].map(t => {
-      const sel = t.week_label === STATE.currentWeek ? 'selected' : '';
+  menu.innerHTML = groupOrder.map(month => {
+    const monthRows  = groups[month];
+    const monthRev   = monthRows.reduce((a, t) => a + (num(t.revenue) || 0), 0);
+    const monthRevStr= monthRev > 0 ? '$' + Math.round(monthRev).toLocaleString() : '—';
+    const monthSel   = month === STATE.currentMonth ? 'selected' : '';
+    const monthHtml  = `<div class="week-picker-item week-picker-month ${monthSel}" data-month="${month}">
+        <span>📅 Full month · ${month}</span>
+        <span class="week-picker-item-rev">${monthRevStr}</span>
+      </div>`;
+    const itemsHtml = monthRows.map(t => {
+      const sel = (!STATE.currentMonth && t.week_label === STATE.currentWeek) ? 'selected' : '';
       const rev = num(t.revenue);
       const revStr = rev !== null && rev > 0 ? '$' + Math.round(rev).toLocaleString() : '—';
       const range = t.week_full
@@ -5683,12 +5798,13 @@ function updateWeekPicker() {
         <span class="week-picker-item-rev">${revStr}</span>
       </div>`;
     }).join('');
-    return `<div class="week-picker-group-label">${tab}</div>${itemsHtml}`;
+    return `<div class="week-picker-group-label">${month}</div>${monthHtml}${itemsHtml}`;
   }).join('');
 
   menu.querySelectorAll('.week-picker-item').forEach(el => {
     el.addEventListener('click', () => {
-      applyWeek(el.dataset.week);
+      if (el.dataset.month) applyMonth(el.dataset.month);
+      else                  applyWeek(el.dataset.week);
       closeWeekPicker();
     });
   });
@@ -5736,6 +5852,7 @@ function renderAll(data) {
   STATE.lastFetched = Date.now();
   const trend = data.revenueTrend || [];
   STATE.currentWeek = trend.length ? trend[trend.length - 1].week_label : null;
+  STATE.currentMonth = null;
   // applyView() runs the unified alert pipeline (renderAlerts → computeAllAlerts),
   // and renders Reports, Alerts, and Goals using the current week/brand filter.
   applyView();
@@ -6968,8 +7085,11 @@ function campSetCompare(mode, btn) {
   _campCompare = mode;
   document.querySelectorAll('.camp-cmp-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  // Re-render KPIs with updated WoW label
-  if (STATE.data) campRenderKpis(_campState.rows, STATE.data);
+  // Re-render both KPIs and the table so deltas reflect the new mode
+  if (STATE.data) {
+    campRenderKpis(_campState.rows, STATE.data);
+    renderCampaigns(STATE.data);
+  }
 }
 
 /* ── Platform Snapshot ── */
@@ -7119,15 +7239,56 @@ function campUpdateSync() {
 }
 setInterval(campUpdateSync, 30000);
 
+/* Compute the delta % for one campaign row based on the active compare mode.
+   Returns a number (percent change) or null when not computable. */
+function computeRowDelta(r, allRows, mode) {
+  if (mode === 'dod') return null; // no daily data in the feed
+
+  if (mode === 'wow') {
+    // Feed already provides per-row WoW in `wow` / `wow_rev_pct`
+    const v = r.wow_rev_pct != null ? r.wow_rev_pct : (r.wow != null ? r.wow : null);
+    return v != null ? Number(v) : null;
+  }
+
+  if (mode === 'mom') {
+    // Determine the "current" month key for this row
+    const curMonthKey = STATE.currentMonth || (() => {
+      const wf = (STATE.data?.revenueTrend || []).find(t => t.week_label === STATE.currentWeek)?.week_full || '';
+      const k  = monthKeyFromWeekFull(wf);
+      return k.month ? (k.month + (k.year ? ' ' + k.year : '')).trim() : '';
+    })();
+    if (!curMonthKey) return null;
+
+    // Sum revenue for this brand+platform in current month vs previous month
+    let curRev = 0, prevRev = 0, hasPrev = false;
+    const months = buildMonthTotals();
+    const mi = months.findIndex(m => m.month === curMonthKey);
+    if (mi < 1) return null; // no previous month to compare
+    const prevMonthKey = months[mi - 1].month;
+
+    allRows.forEach(row => {
+      if (row.brand !== r.brand || row.platform !== r.platform) return;
+      const mk = monthKeyFromRow(row);
+      if (mk === curMonthKey)  curRev  += num(row.revenue) || 0;
+      if (mk === prevMonthKey) { prevRev += num(row.revenue) || 0; hasPrev = true; }
+    });
+    if (!hasPrev || prevRev === 0) return null;
+    return Math.round(((curRev - prevRev) / prevRev) * 1000) / 10;
+  }
+
+  return null;
+}
+
 function buildCampaignRows(data) {
   const allRows = data.allRows || [];
   const weekly  = data.weeklyDetail || [];
-  const week    = STATE.currentWeek;
 
   // Use allRows (multi-week) if available, else weeklyDetail
   let rows = allRows.length ? allRows : weekly;
-  // Filter to the selected week (same logic as getViewRows)
-  if (week && allRows.length) rows = rows.filter(r => r.week_label === week);
+  // Filter to the selected week or month (same logic as getViewRows)
+  if (allRows.length && (STATE.currentWeek || STATE.currentMonth)) rows = rows.filter(rowInSelection);
+  // For a full-month view, collapse the month's weekly rows into one per campaign.
+  if (allRows.length && STATE.currentMonth) rows = aggregateRowsByCampaign(rows);
   // If no allRows, weeklyDetail is already the current week — no further filter needed
 
   return rows.map((r, i) => {
@@ -7137,14 +7298,22 @@ function buildCampaignRows(data) {
     const roas    = spend > 0 && revenue > 0 ? revenue / spend : null;
     const cpa     = revenue > 0 ? spend / Math.max(1, Math.round(revenue / 45)) : null;
     const ctr     = clicks > 0 ? (0.8 + (i % 5) * 0.3).toFixed(2) : null;
-    const wow     = r.wow_rev_pct != null ? Number(r.wow_rev_pct) : null;
+    const wow     = computeRowDelta(r, allRows, _campCompare);
     const status  = spend <= 0 ? 'Draft'
                   : (revenue === 0 && spend > 0) ? 'Paused'
                   : 'Active';
     const objective = OBJ_MAP[r.platform] || 'Conversions';
     const name = `${r.brand} – ${r.platform}`;
-    const trendVals = [0.6,0.8,0.5,0.9,0.7,1.0,0.85].map((v,j) => v * (revenue||spend||100) * (0.9 + (i+j)%3*0.07));
-    return { name, brand:r.brand, platform:r.platform, status, objective, spend, revenue, roas, cpa, ctr, wow, trendVals, note:r.note||'' };
+    // Real weekly revenue trend for this brand+platform across all weeks in the feed
+    const weekOrder = (data.revenueTrend || []).map(t => t.week_label);
+    const byWeek = {};
+    (data.allRows || []).forEach(ar => {
+      if (ar.brand !== r.brand || ar.platform !== r.platform) return;
+      byWeek[ar.week_label] = (byWeek[ar.week_label] || 0) + (num(ar.revenue) || 0);
+    });
+    const trendLabels = weekOrder.filter(w => byWeek[w] != null);
+    const trendVals   = trendLabels.map(w => byWeek[w]);
+    return { name, brand:r.brand, platform:r.platform, status, objective, spend, revenue, clicks, roas, cpa, ctr, wow, trendVals, trendLabels, note:r.note||'' };
   });
 }
 
@@ -7343,10 +7512,12 @@ function campRenderKpis(rows, data) {
   const avgCpa       = totalConv > 0 ? totalSpend / totalConv : 0;
 
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  const setWow = (id, pct) => {
+  const cmpSuffix = _campCompare === 'mom' ? 'vs last month' : _campCompare === 'dod' ? 'vs yesterday' : 'vs last week';
+  const setDelta = (id, pct) => {
     const el = document.getElementById(id);
-    if (!el || pct == null) return;
-    el.textContent = (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(1) + '% vs last week';
+    if (!el) return;
+    if (pct == null) { el.textContent = _campCompare === 'dod' ? 'N/A (no daily data)' : '—'; el.className = 'camp-kpi-wow'; return; }
+    el.textContent = (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(1) + '% ' + cmpSuffix;
     el.className = 'camp-kpi-wow ' + (pct >= 0 ? 'up' : 'dn');
   };
 
@@ -7357,14 +7528,41 @@ function campRenderKpis(rows, data) {
   set('ck_roas',   blendedRoas.toFixed(2) + 'x');
   set('ck_cpa',    avgCpa > 0 ? '$' + avgCpa.toFixed(2) : '—');
 
-  const wowRevPcts = rows.filter(r => r.wow != null).map(r => r.wow);
-  const avgWow = wowRevPcts.length ? wowRevPcts.reduce((a,b)=>a+b,0)/wowRevPcts.length : null;
-  setWow('ck_total_wow', 12);
-  setWow('ck_active_wow', 9);
-  setWow('ck_spend_wow', avgWow != null ? -(avgWow * 0.3) : -5);
-  setWow('ck_rev_wow',   avgWow);
-  setWow('ck_roas_wow',  avgWow != null ? avgWow * 0.8 : 3);
-  setWow('ck_cpa_wow',   -8.6);
+  // Compute real period deltas from feed data
+  let dRev = null, dSpend = null, dRoas = null;
+  const trendArr = data.revenueTrend || [];
+
+  if (_campCompare === 'wow') {
+    const wkIdx = STATE.currentWeek ? trendArr.findIndex(t => t.week_label === STATE.currentWeek)
+                                    : trendArr.length - 1;
+    const cT = wkIdx >= 0 ? trendArr[wkIdx]     : null;
+    const pT = wkIdx >  0 ? trendArr[wkIdx - 1] : null;
+    const dw = (c, p) => (c != null && p && p > 0) ? Math.round(((c - p) / p) * 1000) / 10 : null;
+    dRev   = cT && pT ? dw(cT.revenue, pT.revenue) : null;
+    dSpend = cT && pT ? dw(cT.spend,   pT.spend)   : null;
+    dRoas  = cT && pT ? dw(cT.roas,    pT.roas)    : null;
+  } else if (_campCompare === 'mom') {
+    const months = buildMonthTotals();
+    const curKey = STATE.currentMonth || (() => {
+      const wf = trendArr.find(t => t.week_label === STATE.currentWeek)?.week_full || '';
+      const k  = monthKeyFromWeekFull(wf); return k.month ? (k.month + (k.year ? ' ' + k.year : '')).trim() : '';
+    })();
+    const mi  = months.findIndex(m => m.month === curKey);
+    const cM  = mi >= 0 ? months[mi]     : null;
+    const pM  = mi >  0 ? months[mi - 1] : null;
+    const dm  = (c, p) => (c != null && p && p > 0) ? Math.round(((c - p) / p) * 1000) / 10 : null;
+    dRev   = cM && pM ? dm(cM.revenue, pM.revenue) : null;
+    dSpend = cM && pM ? dm(cM.spend,   pM.spend)   : null;
+    dRoas  = cM && pM ? dm(cM.roas,    pM.roas)    : null;
+  }
+  // DoD: no daily data — all nulls
+
+  setDelta('ck_total_wow',  null);
+  setDelta('ck_active_wow', null);
+  setDelta('ck_spend_wow',  dSpend);
+  setDelta('ck_rev_wow',    dRev);
+  setDelta('ck_roas_wow',   dRoas);
+  setDelta('ck_cpa_wow',    null);
 
   // KPI sparklines
   const trendData = (data.revenueTrend || []).slice(-7);
@@ -7636,7 +7834,7 @@ function campShowStats(name) {
       <div class="camp-stat-box"><div class="camp-stat-box-label">Revenue</div><div class="camp-stat-box-val" style="color:#4ade80">$${row.revenue.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">ROAS</div><div class="camp-stat-box-val" style="color:${row.roas>=4?'#4ade80':row.roas>=2.5?'#fbbf24':'#f87171'}">${roas}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">Avg CPA</div><div class="camp-stat-box-val">${cpa}</div></div>
-      <div class="camp-stat-box"><div class="camp-stat-box-label">Clicks</div><div class="camp-stat-box-val" style="color:#60a5fa">${(row.trendVals.reduce((a,b)=>a+b,0)/7*0.1|0).toLocaleString()}</div></div>
+      <div class="camp-stat-box"><div class="camp-stat-box-label">Clicks</div><div class="camp-stat-box-val" style="color:#60a5fa">${row.clicks != null ? Math.round(row.clicks).toLocaleString() : '—'}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">CTR</div><div class="camp-stat-box-val">${row.ctr||'—'}${row.ctr?'%':''}</div></div>
     </div>
     ${row.note ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding:10px;background:var(--card-elevated);border-radius:8px;">📝 ${row.note}</div>` : ''}
@@ -7652,7 +7850,7 @@ function campShowStats(name) {
     if (!canvas) return;
     try {
       new Chart(canvas, { type:'line', data:{
-        labels: row.trendVals.map((_,i) => 'D'+(i+1)),
+        labels: (row.trendLabels || row.trendVals.map((_,i) => 'W'+(i+1))),
         datasets:[{ data:row.trendVals, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.08)', borderWidth:2, pointRadius:3, tension:0.4, fill:true }]
       }, options:{ plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.05)'}}}, responsive:true, animation:{duration:400} }});
     } catch(e){}
@@ -7819,6 +8017,17 @@ function campToggleDatePicker(e) {
   const trend = STATE.data?.revenueTrend || [];
   const weeks = [...trend].reverse(); // latest first
 
+  // Full-month options (newest first) — let the client pick a whole month.
+  const months = buildMonthTotals().reverse();
+  const monthItems = months.map(m => {
+    const isActive = _campDateKey === 'month:' + m.month;
+    const rev = m.revenue > 0 ? '$' + Math.round(m.revenue).toLocaleString() : '';
+    const safe = m.month.replace(/'/g, "\\'");
+    return `<div class="camp-date-option ${isActive?'active':''}" onclick="campSelectMonth('${safe}')">
+      <span>📅 ${m.month}</span><span class="camp-date-range">Full month${rev ? ' · ' + rev : ''}</span>
+    </div>`;
+  }).join('');
+
   const weekItems = weeks.map(t => {
     const label = t.week_full ? formatWeekRange(t.week_full) : t.week_label;
     const isActive = _campDateKey === t.week_label;
@@ -7829,12 +8038,28 @@ function campToggleDatePicker(e) {
   }).join('');
 
   const allActive = _campDateKey === 'all_time';
-  dd.innerHTML = weekItems +
+  dd.innerHTML =
+    (monthItems ? monthItems + '<div class="camp-date-sep"></div>' : '') +
+    weekItems +
     '<div class="camp-date-sep"></div>' +
     `<div class="camp-date-option ${allActive?'active':''}" onclick="campSelectDate('all_time','All Time')">
       <span>All Time</span><span class="camp-date-range">All weeks</span>
     </div>`;
   dd.classList.add('open');
+}
+
+function campSelectMonth(monthKey) {
+  _campDateKey = 'month:' + monthKey;
+  document.getElementById('campDateDropdown')?.classList.remove('open');
+
+  const label = document.getElementById('campDateLabel');
+  if (label) label.textContent = monthKey;
+
+  STATE.currentMonth = monthKey;
+  STATE.currentWeek  = null;
+
+  applyView();
+  showToast(`📅 ${monthKey} (full month)`);
 }
 
 function campSelectDate(key, rangeLabel) {
@@ -7844,6 +8069,7 @@ function campSelectDate(key, rangeLabel) {
   const label = document.getElementById('campDateLabel');
   if (label) label.textContent = rangeLabel || key;
 
+  STATE.currentMonth = null;
   if (key === 'all_time') {
     // Show all weeks — clear week filter
     STATE.currentWeek = null;
