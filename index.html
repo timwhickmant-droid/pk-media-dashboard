@@ -3983,6 +3983,7 @@ html.theme-light .sidebar-brand-icon {
             <th>Objective</th>
             <th class="camp-sortable" onclick="campSort('spend')">Spend <span class="camp-sort-arrow" id="csrt_spend">↕</span></th>
             <th class="camp-sortable" onclick="campSort('revenue')">Revenue <span class="camp-sort-arrow" id="csrt_revenue">↕</span></th>
+            <th class="camp-sortable" onclick="campSort('clicks')">Clicks <span class="camp-sort-arrow" id="csrt_clicks">↕</span></th>
             <th class="camp-sortable" onclick="campSort('roas')">ROAS <span class="camp-sort-arrow" id="csrt_roas">↕</span></th>
             <th>CPC</th>
             <th>CTR</th>
@@ -7098,9 +7099,10 @@ function campRenderPlatSnap(rows) {
   if (!el) return;
   const byPlat = {};
   rows.forEach(r => {
-    if (!byPlat[r.platform]) byPlat[r.platform] = { spend:0, revenue:0, count:0 };
+    if (!byPlat[r.platform]) byPlat[r.platform] = { spend:0, revenue:0, clicks:0, count:0 };
     byPlat[r.platform].spend   += r.spend;
     byPlat[r.platform].revenue += r.revenue;
+    byPlat[r.platform].clicks  += r.clicks || 0;
     byPlat[r.platform].count++;
   });
   el.innerHTML = Object.entries(byPlat).map(([plat, d]) => {
@@ -7111,7 +7113,7 @@ function campRenderPlatSnap(rows) {
       <div>
         <div class="camp-plat-snap-name">${plat}</div>
         <div class="camp-plat-snap-roas">${roas}x ROAS</div>
-        <div class="camp-plat-snap-meta">$${d.spend.toLocaleString('en',{maximumFractionDigits:0})} spend · ${d.count} campaign${d.count>1?'s':''}</div>
+        <div class="camp-plat-snap-meta">$${d.spend.toLocaleString('en',{maximumFractionDigits:0})} spend · ${Math.round(d.clicks).toLocaleString('en')} clicks · ${d.count} campaign${d.count>1?'s':''}</div>
       </div>
     </div>`;
   }).join('');
@@ -7389,6 +7391,7 @@ function campRenderTable() {
     const roasStr   = r.roas != null ? r.roas.toFixed(2)+'x' : '—';
     const spendStr  = '$' + r.spend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
     const revStr    = r.revenue > 0 ? '$' + r.revenue.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}) : '$0.00';
+    const clicksStr = r.clicks != null ? Math.round(r.clicks).toLocaleString('en') : '—';
     const cpcStr    = r.cpc != null ? '$' + r.cpc.toFixed(2) : '—';
     const ctrStr    = r.ctr != null ? r.ctr + '%' : '—';
     const platIcon  = PLAT_ICONS[r.platform] || '📍';
@@ -7412,6 +7415,7 @@ function campRenderTable() {
       <td>${objChip}</td>
       <td>${spendStr}</td>
       <td>${revStr}</td>
+      <td>${clicksStr}</td>
       <td class="${roasClass}">${roasStr}</td>
       <td>${cpcStr}</td>
       <td>${ctrStr}</td>
@@ -7427,10 +7431,11 @@ function campRenderTable() {
 
     // Expanded row
     if (isExpanded) {
-      const exSpend = r.spend, exRev = r.revenue, exROAS = r.roas, exCPC = r.cpc;
-      rows.push(`<tr class="camp-row-expand"><td colspan="13"><div class="camp-expand-inner">
+      const exSpend = r.spend, exRev = r.revenue, exROAS = r.roas, exCPC = r.cpc, exClicks = r.clicks;
+      rows.push(`<tr class="camp-row-expand"><td colspan="14"><div class="camp-expand-inner">
         <div class="camp-expand-box"><div class="camp-expand-box-label">Weekly Spend</div><div class="camp-expand-box-val">$${exSpend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Weekly Revenue</div><div class="camp-expand-box-val" style="color:#4ade80">$${exRev.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
+        <div class="camp-expand-box"><div class="camp-expand-box-label">Clicks</div><div class="camp-expand-box-val" style="color:#60a5fa">${exClicks!=null?Math.round(exClicks).toLocaleString('en'):'—'}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">ROAS</div><div class="camp-expand-box-val" style="color:${exROAS>=4?'#4ade80':exROAS>=2.5?'#fbbf24':'#f87171'}">${exROAS!=null?exROAS.toFixed(2)+'x':'—'}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Avg CPC</div><div class="camp-expand-box-val">${exCPC!=null?'$'+exCPC.toFixed(2):'—'}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Health Score</div><div class="camp-expand-box-val">${health.emoji} ${health.score}/100</div></div>
@@ -7444,7 +7449,7 @@ function campRenderTable() {
     }
   });
 
-  tbody.innerHTML = rows.join('') || `<tr><td colspan="13" class="camp-no-data">No campaigns match your filters.</td></tr>`;
+  tbody.innerHTML = rows.join('') || `<tr><td colspan="14" class="camp-no-data">No campaigns match your filters.</td></tr>`;
 
   // Colored sparklines (green=up, red=down, yellow=unstable)
   slice.forEach(r => {
@@ -7469,7 +7474,7 @@ function campRenderTable() {
   });
 
   // Sort arrows
-  ['name','spend','revenue','roas','health'].forEach(col => {
+  ['name','spend','revenue','clicks','roas','health'].forEach(col => {
     const el = document.getElementById('csrt_'+col);
     if (!el) return;
     el.textContent = _campState.sortCol === col ? (_campState.sortDir === 1 ? '▲' : '▼') : '↕';
@@ -7758,6 +7763,7 @@ const CAMP_COLS = [
   { key:'objective', label:'Objective', vis:true },
   { key:'spend',     label:'Spend',     vis:true },
   { key:'revenue',   label:'Revenue',   vis:true },
+  { key:'clicks',    label:'Clicks',    vis:true },
   { key:'roas',      label:'ROAS',      vis:true },
   { key:'cpc',       label:'CPC',       vis:true },
   { key:'ctr',       label:'CTR',       vis:true },
@@ -7788,11 +7794,12 @@ function campSetCol(key, vis) {
 function campExportCSV() {
   const rows = _campState.filtered;
   if (!rows.length) { showToast('No data to export'); return; }
-  const headers = ['Campaign','Platform','Status','Objective','Spend','Revenue','ROAS','CPC','CTR'];
+  const headers = ['Campaign','Platform','Status','Objective','Spend','Revenue','Clicks','ROAS','CPC','CTR'];
   const lines = [headers.join(',')].concat(rows.map(r =>
     [
       `"${r.name}"`, `"${r.platform}"`, r.status, r.objective,
       r.spend.toFixed(2), r.revenue.toFixed(2),
+      r.clicks != null ? Math.round(r.clicks) : '',
       r.roas != null ? r.roas.toFixed(2) : '',
       r.cpc  != null ? r.cpc.toFixed(2)  : '',
       r.ctr  != null ? r.ctr              : ''
