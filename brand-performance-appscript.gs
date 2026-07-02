@@ -11,6 +11,11 @@
 const SPREADSHEET_ID = '19EmpiQ6QrR3FYT5FlnmEns-bWilZCk9ffqgRoJVLg7g';
 const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 
+// Platforms to exclude entirely from the feed (lowercase). Rows on these
+// platforms are dropped before any aggregation, so revenueTrend/mtd/meta/allRows
+// all exclude them.
+const EXCLUDED_PLATFORMS = ['adroll'];
+
 const GOALS_SHEET_NAME    = 'Goals';
 const GOAL_HEADERS        = ['brand','monthly_revenue_target','monthly_spend_cap','target_roas','roas_floor'];
 const DEFAULT_GOAL_BRANDS = ['Greenroads','Cannabis Life','HempBombs','Mystic Labs'];
@@ -148,10 +153,13 @@ function readRows(sh) {
     var brand = row[idx.brand] ? String(row[idx.brand]).trim() : '';
     if (!brand) continue;
 
+    var platform = idx.platform >= 0 ? String(row[idx.platform] || '').trim() : '';
+    if (EXCLUDED_PLATFORMS.indexOf(platform.toLowerCase()) !== -1) continue; // drop excluded platforms
+
     out.push({
       week:        normalizeWeek(idx.week >= 0 ? (display[i][idx.week] || row[idx.week]) : ''),
       brand:       normalizeBrand(brand),
-      platform:    idx.platform >= 0 ? String(row[idx.platform] || '').trim() : '',
+      platform:    platform,
       spend:       toNum(idx.spend   >= 0 ? row[idx.spend]   : null),
       revenue:     toNum(idx.revenue >= 0 ? row[idx.revenue] : null),
       clicks:      toNum(idx.clicks  >= 0 ? row[idx.clicks]  : null),

@@ -5930,7 +5930,52 @@ function closeWeekPicker() {
   if (btn)  btn.classList.remove('open');
 }
 
+// Platforms to drop entirely from the dashboard (case-insensitive). The source
+// data lives in a Google Sheet; this strips them client-side so no re-import is
+// needed and every total/chart/table stays consistent.
+const EXCLUDED_PLATFORMS = ['adroll'];
+
+// Return a copy of the feed with EXCLUDED_PLATFORMS removed and the per-week
+// aggregates (revenueTrend, dailySpend) recomputed from the surviving rows. KPI
+// totals, the MTD table, and month figures are already derived from allRows, so
+// filtering allRows + recomputing the trend removes the platform everywhere.
+function stripExcludedPlatforms(data) {
+  if (!data || !EXCLUDED_PLATFORMS.length) return data;
+  const excluded = new Set(EXCLUDED_PLATFORMS);
+  const keep = r => !excluded.has(String(r && r.platform || '').trim().toLowerCase());
+
+  const allRows      = (data.allRows      || []).filter(keep);
+  const weeklyDetail = (data.weeklyDetail || []).filter(keep);
+
+  // Without row-level data (e.g. the SAMPLE fallback) the pre-aggregated trend
+  // can't be rebuilt — leave it as-is so the fallback still renders.
+  if (!allRows.length) return Object.assign({}, data, { allRows, weeklyDetail });
+
+  // Recompute per-week trend from surviving rows, preserving week order/labels.
+  const byWeek = {};
+  allRows.forEach(r => {
+    const k = r.week_label;
+    if (!byWeek[k]) byWeek[k] = { revenue: 0, spend: 0, clicks: 0 };
+    byWeek[k].revenue += num(r.revenue) || 0;
+    byWeek[k].spend   += num(r.spend)   || 0;
+    byWeek[k].clicks  += num(r.clicks)  || 0;
+  });
+  const revenueTrend = (data.revenueTrend || []).map(t => {
+    const w = byWeek[t.week_label] || { revenue: 0, spend: 0, clicks: 0 };
+    return Object.assign({}, t, {
+      revenue: Math.round(w.revenue),
+      spend:   Math.round(w.spend),
+      clicks:  Math.round(w.clicks),
+      roas:    w.spend ? Math.round((w.revenue / w.spend) * 100) / 100 : 0
+    });
+  });
+  const dailySpend = revenueTrend.map(t => ({ date: t.week_label, spend: t.spend }));
+
+  return Object.assign({}, data, { allRows, weeklyDetail, revenueTrend, dailySpend });
+}
+
 function renderAll(data) {
+  data = stripExcludedPlatforms(data);
   STATE.data = data;
   STATE.lastFetched = Date.now();
   const trend = data.revenueTrend || [];
