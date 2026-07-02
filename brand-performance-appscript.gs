@@ -14,7 +14,7 @@ const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 // Platforms to exclude entirely from the feed (lowercase). Rows on these
 // platforms are dropped before any aggregation, so revenueTrend/mtd/meta/allRows
 // all exclude them.
-const EXCLUDED_PLATFORMS = ['adroll'];
+const EXCLUDED_PLATFORMS = ['adroll', 'facebook'];
 
 const GOALS_SHEET_NAME    = 'Goals';
 const GOAL_HEADERS        = ['brand','monthly_revenue_target','monthly_spend_cap','target_roas','roas_floor'];

@@ -5933,7 +5933,7 @@ function closeWeekPicker() {
 // Platforms to drop entirely from the dashboard (case-insensitive). The source
 // data lives in a Google Sheet; this strips them client-side so no re-import is
 // needed and every total/chart/table stays consistent.
-const EXCLUDED_PLATFORMS = ['adroll'];
+const EXCLUDED_PLATFORMS = ['adroll', 'facebook'];
 
 // Return a copy of the feed with EXCLUDED_PLATFORMS removed and the per-week
 // aggregates (revenueTrend, dailySpend) recomputed from the surviving rows. KPI
