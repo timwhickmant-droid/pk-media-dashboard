@@ -3904,10 +3904,10 @@ html.theme-light .sidebar-brand-icon {
         <canvas id="ck_roas_spark" height="36"></canvas>
       </div>
       <div class="camp-kpi-card">
-        <div class="camp-kpi-top"><span class="camp-kpi-icon" style="color:#fb923c">⊕</span><span class="camp-kpi-label">Avg. CPA</span></div>
-        <div class="camp-kpi-val" id="ck_cpa">—</div>
-        <div class="camp-kpi-wow" id="ck_cpa_wow"></div>
-        <canvas id="ck_cpa_spark" height="36"></canvas>
+        <div class="camp-kpi-top"><span class="camp-kpi-icon" style="color:#fb923c">⊕</span><span class="camp-kpi-label">Avg. CPC</span></div>
+        <div class="camp-kpi-val" id="ck_cpc">—</div>
+        <div class="camp-kpi-wow" id="ck_cpc_wow"></div>
+        <canvas id="ck_cpc_spark" height="36"></canvas>
       </div>
     </div>
 
@@ -3936,7 +3936,7 @@ html.theme-light .sidebar-brand-icon {
 
     <!-- Filter bar -->
     <div class="camp-filter-bar" id="campFilterBar">
-      <input class="camp-search" id="campSearch" type="text" placeholder='Search: "Meta active" · "ROAS > 4" · "CPA < 10"' oninput="campApplyFilters()">
+      <input class="camp-search" id="campSearch" type="text" placeholder='Search: "Meta active" · "ROAS > 4" · "CPC < 10"' oninput="campApplyFilters()">
       <select class="camp-select" id="campPlatform" onchange="campApplyFilters()">
         <option value="">All Platforms</option>
       </select>
@@ -3984,7 +3984,7 @@ html.theme-light .sidebar-brand-icon {
             <th class="camp-sortable" onclick="campSort('spend')">Spend <span class="camp-sort-arrow" id="csrt_spend">↕</span></th>
             <th class="camp-sortable" onclick="campSort('revenue')">Revenue <span class="camp-sort-arrow" id="csrt_revenue">↕</span></th>
             <th class="camp-sortable" onclick="campSort('roas')">ROAS <span class="camp-sort-arrow" id="csrt_roas">↕</span></th>
-            <th>CPA</th>
+            <th>CPC</th>
             <th>CTR</th>
             <th class="camp-sortable" onclick="campSort('health')">Health <span class="camp-sort-arrow" id="csrt_health">↕</span></th>
             <th>Trend</th>
@@ -7001,9 +7001,9 @@ function campCalcHealth(r) {
     else if (r.roas < 2.5) score -= 15;
     else if (r.roas >= 5)  score += 10;
   } else score -= 20;
-  if (r.cpa != null) {
-    if (r.cpa > 50)  score -= 15;
-    else if (r.cpa > 25) score -= 5;
+  if (r.cpc != null) {
+    if (r.cpc > 5)  score -= 15;
+    else if (r.cpc > 2.5) score -= 5;
   }
   if (r.ctr != null) {
     const ctr = parseFloat(r.ctr);
@@ -7049,11 +7049,11 @@ function campSmartFilter(r, q) {
     if (op === '<=')  return rv <= parseFloat(val);
   }
 
-  // "CPA < 10"
-  const cpaMatch = q.match(/cpa\s*([><=!]+)\s*([\d.]+)/);
-  if (cpaMatch) {
-    const [, op, val] = cpaMatch;
-    const cv = r.cpa;
+  // "CPC < 10"
+  const cpcMatch = q.match(/cpc\s*([><=!]+)\s*([\d.]+)/);
+  if (cpcMatch) {
+    const [, op, val] = cpcMatch;
+    const cv = r.cpc;
     if (cv == null) return false;
     if (op === '>')  return cv >  parseFloat(val);
     if (op === '<')  return cv <  parseFloat(val);
@@ -7296,7 +7296,7 @@ function buildCampaignRows(data) {
     const revenue = Number(r.revenue) || 0;
     const clicks  = Number(r.clicks)  || 0;
     const roas    = spend > 0 && revenue > 0 ? revenue / spend : null;
-    const cpa     = revenue > 0 ? spend / Math.max(1, Math.round(revenue / 45)) : null;
+    const cpc     = clicks > 0 ? spend / clicks : null;
     const ctr     = clicks > 0 ? (0.8 + (i % 5) * 0.3).toFixed(2) : null;
     const wow     = computeRowDelta(r, allRows, _campCompare);
     const status  = spend <= 0 ? 'Draft'
@@ -7313,7 +7313,7 @@ function buildCampaignRows(data) {
     });
     const trendLabels = weekOrder.filter(w => byWeek[w] != null);
     const trendVals   = trendLabels.map(w => byWeek[w]);
-    return { name, brand:r.brand, platform:r.platform, status, objective, spend, revenue, clicks, roas, cpa, ctr, wow, trendVals, trendLabels, note:r.note||'' };
+    return { name, brand:r.brand, platform:r.platform, status, objective, spend, revenue, clicks, roas, cpc, ctr, wow, trendVals, trendLabels, note:r.note||'' };
   });
 }
 
@@ -7389,7 +7389,7 @@ function campRenderTable() {
     const roasStr   = r.roas != null ? r.roas.toFixed(2)+'x' : '—';
     const spendStr  = '$' + r.spend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
     const revStr    = r.revenue > 0 ? '$' + r.revenue.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}) : '$0.00';
-    const cpaStr    = r.cpa != null ? '$' + r.cpa.toFixed(2) : '—';
+    const cpcStr    = r.cpc != null ? '$' + r.cpc.toFixed(2) : '—';
     const ctrStr    = r.ctr != null ? r.ctr + '%' : '—';
     const platIcon  = PLAT_ICONS[r.platform] || '📍';
     const statusChip = `<span class="camp-status-chip ${r.status.toLowerCase()}">${r.status==='Active'?'●':r.status==='Paused'?'⏸':'○'} ${r.status}</span>`;
@@ -7413,7 +7413,7 @@ function campRenderTable() {
       <td>${spendStr}</td>
       <td>${revStr}</td>
       <td class="${roasClass}">${roasStr}</td>
-      <td>${cpaStr}</td>
+      <td>${cpcStr}</td>
       <td>${ctrStr}</td>
       <td><span class="camp-health ${health.cls}">${health.emoji} ${health.label}</span></td>
       <td><canvas id="${sparkId}" width="80" height="32" class="camp-trend-spark"></canvas></td>
@@ -7427,12 +7427,12 @@ function campRenderTable() {
 
     // Expanded row
     if (isExpanded) {
-      const exSpend = r.spend, exRev = r.revenue, exROAS = r.roas, exCPA = r.cpa;
+      const exSpend = r.spend, exRev = r.revenue, exROAS = r.roas, exCPC = r.cpc;
       rows.push(`<tr class="camp-row-expand"><td colspan="13"><div class="camp-expand-inner">
         <div class="camp-expand-box"><div class="camp-expand-box-label">Weekly Spend</div><div class="camp-expand-box-val">$${exSpend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Weekly Revenue</div><div class="camp-expand-box-val" style="color:#4ade80">$${exRev.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">ROAS</div><div class="camp-expand-box-val" style="color:${exROAS>=4?'#4ade80':exROAS>=2.5?'#fbbf24':'#f87171'}">${exROAS!=null?exROAS.toFixed(2)+'x':'—'}</div></div>
-        <div class="camp-expand-box"><div class="camp-expand-box-label">Avg CPA</div><div class="camp-expand-box-val">${exCPA!=null?'$'+exCPA.toFixed(2):'—'}</div></div>
+        <div class="camp-expand-box"><div class="camp-expand-box-label">Avg CPC</div><div class="camp-expand-box-val">${exCPC!=null?'$'+exCPC.toFixed(2):'—'}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Health Score</div><div class="camp-expand-box-val">${health.emoji} ${health.score}/100</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Platform</div><div class="camp-expand-box-val" style="font-size:14px">${platIcon} ${r.platform}</div></div>
         ${r.note ? `<div class="camp-expand-box" style="grid-column:1/-1"><div class="camp-expand-box-label">Notes</div><div class="camp-expand-box-val" style="font-size:13px;font-weight:600">📝 ${r.note}</div></div>` : ''}
@@ -7508,8 +7508,8 @@ function campRenderKpis(rows, data) {
   const totalRev     = rows.reduce((s,r) => s + r.revenue, 0);
   const blendedRoas  = totalSpend > 0 ? totalRev / totalSpend : 0;
   const activeCamps  = rows.filter(r => r.status === 'Active').length;
-  const totalConv    = rows.reduce((s,r) => s + (r.revenue > 0 ? Math.round(r.revenue/45) : 0), 0);
-  const avgCpa       = totalConv > 0 ? totalSpend / totalConv : 0;
+  const totalClicks  = rows.reduce((s,r) => s + (r.clicks || 0), 0);
+  const avgCpc       = totalClicks > 0 ? totalSpend / totalClicks : 0;
 
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   const cmpSuffix = _campCompare === 'mom' ? 'vs last month' : _campCompare === 'dod' ? 'vs yesterday' : 'vs last week';
@@ -7526,7 +7526,7 @@ function campRenderKpis(rows, data) {
   set('ck_spend',  '$' + totalSpend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}));
   set('ck_rev',    '$' + totalRev.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}));
   set('ck_roas',   blendedRoas.toFixed(2) + 'x');
-  set('ck_cpa',    avgCpa > 0 ? '$' + avgCpa.toFixed(2) : '—');
+  set('ck_cpc',    avgCpc > 0 ? '$' + avgCpc.toFixed(2) : '—');
 
   // Compute real period deltas from feed data
   let dRev = null, dSpend = null, dRoas = null;
@@ -7562,7 +7562,7 @@ function campRenderKpis(rows, data) {
   setDelta('ck_spend_wow',  dSpend);
   setDelta('ck_rev_wow',    dRev);
   setDelta('ck_roas_wow',   dRoas);
-  setDelta('ck_cpa_wow',    null);
+  setDelta('ck_cpc_wow',    null);
 
   // KPI sparklines
   const trendData = (data.revenueTrend || []).slice(-7);
@@ -7572,7 +7572,7 @@ function campRenderKpis(rows, data) {
     { id:'ck_spend_spark',  key:'spend',   color:'#f87171' },
     { id:'ck_rev_spark',    key:'revenue', color:'#4ade80' },
     { id:'ck_roas_spark',   key:'roas',    color:'#818cf8' },
-    { id:'ck_cpa_spark',    key:'spend',   color:'#fb923c' }
+    { id:'ck_cpc_spark',    key:'spend',   color:'#fb923c' }
   ].forEach(({ id, key, color }) => {
     const canvas = document.getElementById(id);
     if (!canvas) return;
@@ -7707,7 +7707,7 @@ function renderCampaigns(data) {
     { id:'ck_spend',  filter: () => { _campState.sortCol='spend'; _campState.sortDir=-1; campApplyFilters(); campScrollToTable(); } },
     { id:'ck_rev',    filter: () => { _campState.sortCol='revenue'; _campState.sortDir=-1; campApplyFilters(); campScrollToTable(); } },
     { id:'ck_roas',   filter: () => { _campState.sortCol='roas'; _campState.sortDir=-1; campApplyFilters(); campScrollToTable(); } },
-    { id:'ck_cpa',    filter: () => { _campState.sortCol='cpa'; _campState.sortDir=1; campApplyFilters(); campScrollToTable(); } },
+    { id:'ck_cpc',    filter: () => { _campState.sortCol='cpc'; _campState.sortDir=1; campApplyFilters(); campScrollToTable(); } },
   ];
   kpiDefs.forEach(({ id, filter }) => {
     const card = document.getElementById(id)?.closest('.camp-kpi-card');
@@ -7759,7 +7759,7 @@ const CAMP_COLS = [
   { key:'spend',     label:'Spend',     vis:true },
   { key:'revenue',   label:'Revenue',   vis:true },
   { key:'roas',      label:'ROAS',      vis:true },
-  { key:'cpa',       label:'CPA',       vis:true },
+  { key:'cpc',       label:'CPC',       vis:true },
   { key:'ctr',       label:'CTR',       vis:true },
   { key:'trend',     label:'Trend',     vis:true },
 ];
@@ -7788,13 +7788,13 @@ function campSetCol(key, vis) {
 function campExportCSV() {
   const rows = _campState.filtered;
   if (!rows.length) { showToast('No data to export'); return; }
-  const headers = ['Campaign','Platform','Status','Objective','Spend','Revenue','ROAS','CPA','CTR'];
+  const headers = ['Campaign','Platform','Status','Objective','Spend','Revenue','ROAS','CPC','CTR'];
   const lines = [headers.join(',')].concat(rows.map(r =>
     [
       `"${r.name}"`, `"${r.platform}"`, r.status, r.objective,
       r.spend.toFixed(2), r.revenue.toFixed(2),
       r.roas != null ? r.roas.toFixed(2) : '',
-      r.cpa  != null ? r.cpa.toFixed(2)  : '',
+      r.cpc  != null ? r.cpc.toFixed(2)  : '',
       r.ctr  != null ? r.ctr              : ''
     ].join(',')
   ));
@@ -7824,7 +7824,7 @@ function campShowStats(name) {
   const row = _campState.rows.find(r => r.name === name);
   if (!row) return;
   const roas = row.roas != null ? row.roas.toFixed(2)+'x' : '—';
-  const cpa  = row.cpa  != null ? '$'+row.cpa.toFixed(2)   : '—';
+  const cpc  = row.cpc  != null ? '$'+row.cpc.toFixed(2)   : '—';
   const platIcon = PLAT_ICONS[row.platform] || '📍';
   document.getElementById('campModalContent').innerHTML = `
     <div class="sec-modal-title">${platIcon} ${row.name}</div>
@@ -7833,7 +7833,7 @@ function campShowStats(name) {
       <div class="camp-stat-box"><div class="camp-stat-box-label">Spend</div><div class="camp-stat-box-val">$${row.spend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">Revenue</div><div class="camp-stat-box-val" style="color:#4ade80">$${row.revenue.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">ROAS</div><div class="camp-stat-box-val" style="color:${row.roas>=4?'#4ade80':row.roas>=2.5?'#fbbf24':'#f87171'}">${roas}</div></div>
-      <div class="camp-stat-box"><div class="camp-stat-box-label">Avg CPA</div><div class="camp-stat-box-val">${cpa}</div></div>
+      <div class="camp-stat-box"><div class="camp-stat-box-label">Avg CPC</div><div class="camp-stat-box-val">${cpc}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">Clicks</div><div class="camp-stat-box-val" style="color:#60a5fa">${row.clicks != null ? Math.round(row.clicks).toLocaleString() : '—'}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">CTR</div><div class="camp-stat-box-val">${row.ctr||'—'}${row.ctr?'%':''}</div></div>
     </div>
@@ -7942,7 +7942,7 @@ function campSaveNew() {
   if (!name) { showToast('Enter a campaign name'); return; }
   const trendBase = spend || 100;
   const newRow = { name, brand: name.split(' – ')[0] || name, platform, status, objective: obj,
-    spend, revenue: 0, roas: null, cpa: null, ctr: null, wow: null,
+    spend, revenue: 0, clicks: 0, roas: null, cpc: null, ctr: null, wow: null,
     trendVals: [0.5,0.7,0.6,0.8,0.65,0.9,0.75].map(v => v * trendBase), note:'' };
   _campState.rows.unshift(newRow);
   campApplyFilters();
