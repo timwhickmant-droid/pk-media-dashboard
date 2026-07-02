@@ -5377,9 +5377,12 @@ function computeWeekStats(rows) {
 function getViewRows() {
   const all = STATE.data?.allRows || [];
   let rows = all.length ? all : (STATE.data?.weeklyDetail || []);
-  if (all.length && (STATE.currentWeek || STATE.currentMonth)) rows = rows.filter(rowInSelection);
-  // For a full-month view, collapse the month's weekly rows into one per campaign.
-  if (all.length && STATE.currentMonth) rows = aggregateRowsByCampaign(rows);
+  if (all.length && STATE.currentMonth) {
+    // Full month: pro-rate boundary weeks by day-share, then collapse to one row per campaign.
+    rows = aggregateRowsByCampaign(proratedRowsForMonth(rows, STATE.currentMonth));
+  } else if (all.length && STATE.currentWeek) {
+    rows = rows.filter(r => r.week_label === STATE.currentWeek);
+  }
   if (STATE.activeBrand) rows = rows.filter(r => r.brand === STATE.activeBrand);
   return rows;
 }
@@ -5420,37 +5423,112 @@ function monthKeyFromWeekFull(wf) {
 }
 const weekNumOf = lbl => { const m = /(\d+)/.exec(lbl || ''); return m ? +m[1] : 0; };
 
+/* ── Calendar-accurate month math ──────────────────────────────────────────
+   Source data is weekly, but a week can straddle a month boundary (e.g.
+   "May 31-Jun 6" is 1 day of May + 6 of June). To make month totals match the
+   ad platforms' calendar-month reporting, boundary weeks are pro-rated by the
+   number of their days that fall inside the target month. */
+const _MON_ABBR = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+const _DAY_MS   = 86400000;
+function _monthKeyOfDate(d) { return MONTH_NAMES[_MON_ABBR[d.getUTCMonth()]] + ' ' + d.getUTCFullYear(); }
+function monthKeyToNum(key) {
+  const m = String(key).match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (!m) return 0;
+  const idx = _MON_ABBR.indexOf(m[1].slice(0, 3).toLowerCase());
+  return (+m[2]) * 12 + (idx < 0 ? 0 : idx);
+}
+// Parse "Apr 26-May 2 2026" / "May 3-9 2026" / "May 31-Jun 6 2026" into inclusive
+// UTC start/end dates. Returns null if the string can't be parsed.
+function parseWeekRange(wf) {
+  const m = String(wf || '').trim()
+    .match(/^([A-Za-z]+)\s+(\d{1,2})\s*-\s*(?:([A-Za-z]+)\s+)?(\d{1,2})\s+(\d{4})$/);
+  if (!m) return null;
+  const sMon = _MON_ABBR.indexOf(m[1].slice(0, 3).toLowerCase());
+  const eMon = m[3] ? _MON_ABBR.indexOf(m[3].slice(0, 3).toLowerCase()) : sMon;
+  if (sMon < 0 || eMon < 0) return null;
+  const sDay = +m[2], eDay = +m[4], year = +m[5];
+  const eYear = (eMon < sMon) ? year + 1 : year;           // Dec→Jan wrap
+  return { start: new Date(Date.UTC(year, sMon, sDay)), end: new Date(Date.UTC(eYear, eMon, eDay)) };
+}
+// Fraction (0..1) of a week's days that fall inside calendar month `monthKey`
+// ("May 2026"). Falls back to whole-week start-month attribution if unparseable.
+function weekMonthFraction(wf, monthKey) {
+  const range = parseWeekRange(wf);
+  const mk = String(monthKey).match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (!mk) return 0;
+  if (!range) {
+    const k = monthKeyFromWeekFull(wf);
+    return k.month && (k.month + (k.year ? ' ' + k.year : '')).trim() === monthKey ? 1 : 0;
+  }
+  const mMon = _MON_ABBR.indexOf(mk[1].slice(0, 3).toLowerCase());
+  if (mMon < 0) return 0;
+  const mYear = +mk[2];
+  const mStart = Date.UTC(mYear, mMon, 1);
+  const mEnd   = Date.UTC(mYear, mMon + 1, 0);             // last day of month
+  const total  = Math.round((range.end - range.start) / _DAY_MS) + 1;
+  const ovStart = Math.max(range.start.getTime(), mStart);
+  const ovEnd   = Math.min(range.end.getTime(), mEnd);
+  const overlap = Math.max(0, Math.round((ovEnd - ovStart) / _DAY_MS) + 1);
+  return total > 0 ? Math.min(1, overlap / total) : 0;
+}
+// The (≤2) calendar-month keys a week overlaps, each with its day-fraction.
+function monthsForWeek(wf) {
+  const range = parseWeekRange(wf);
+  if (!range) {
+    const k = monthKeyFromWeekFull(wf);
+    const key = k.month ? (k.month + (k.year ? ' ' + k.year : '')).trim() : '';
+    return key ? [{ month: key, frac: 1 }] : [];
+  }
+  const startKey = _monthKeyOfDate(range.start), endKey = _monthKeyOfDate(range.end);
+  if (startKey === endKey) return [{ month: startKey, frac: 1 }];
+  return [
+    { month: startKey, frac: weekMonthFraction(wf, startKey) },
+    { month: endKey,   frac: weekMonthFraction(wf, endKey) }
+  ];
+}
+// The week-date string for a row (allRows use `week`; fall back to revenueTrend).
+function weekStrOfRow(r) {
+  return (r && (r.week || r.week_full)) ||
+    ((STATE.data?.revenueTrend || []).find(t => t.week_label === (r && r.week_label))?.week_full) || '';
+}
+// Copy weekly rows with spend/revenue/clicks scaled to their share of `monthKey`;
+// rows that don't overlap the month are dropped.
+function proratedRowsForMonth(rows, monthKey) {
+  const out = [];
+  (rows || []).forEach(r => {
+    const f = weekMonthFraction(weekStrOfRow(r), monthKey);
+    if (f <= 0) return;
+    out.push(Object.assign({}, r, {
+      spend:   (num(r.spend)   || 0) * f,
+      revenue: (num(r.revenue) || 0) * f,
+      clicks:  (num(r.clicks)  || 0) * f
+    }));
+  });
+  return out;
+}
+
 /* ── Full-month selection support ──────────────────────────────────────────
    A period is either a single week (STATE.currentWeek = 'W6') or a whole month
-   (STATE.currentMonth = 'May 2026'); the two are mutually exclusive. A row's
-   month is derived from its week's START date, matching computeMonthToDate. */
-function monthKeyFromRow(r) {
-  const wf = (r && (r.week || r.week_full)) ||
-    ((STATE.data?.revenueTrend || []).find(t => t.week_label === (r && r.week_label))?.week_full) || '';
-  const k = monthKeyFromWeekFull(wf);
-  return k.month ? (k.month + (k.year ? ' ' + k.year : '')).trim() : '';
-}
+   (STATE.currentMonth = 'May 2026'); the two are mutually exclusive. Month
+   totals pro-rate boundary weeks by day-share (see weekMonthFraction) so they
+   match the ad platforms' calendar-month reporting. */
 
-// Row passes the active week/month filter (true when nothing is selected).
-function rowInSelection(r) {
-  if (STATE.currentMonth) return monthKeyFromRow(r) === STATE.currentMonth;
-  if (STATE.currentWeek)  return r.week_label === STATE.currentWeek;
-  return true;
-}
-
-// Distinct months in the feed (oldest→newest) with summed totals, for pickers.
+// Distinct calendar months in the feed (oldest→newest) with day-pro-rated totals.
 function buildMonthTotals() {
   const all = STATE.data?.allRows || [];
-  const order = [], by = {};
+  const by = {};
   all.forEach(r => {
-    const key = monthKeyFromRow(r);
-    if (!key) return;
-    if (!by[key]) { by[key] = { month: key, revenue: 0, spend: 0, clicks: 0 }; order.push(key); }
-    by[key].revenue += num(r.revenue) || 0;
-    by[key].spend   += num(r.spend)   || 0;
-    by[key].clicks  += num(r.clicks)  || 0;
+    monthsForWeek(weekStrOfRow(r)).forEach(({ month, frac }) => {
+      if (!month || frac <= 0) return;
+      if (!by[month]) by[month] = { month, revenue: 0, spend: 0, clicks: 0 };
+      by[month].revenue += (num(r.revenue) || 0) * frac;
+      by[month].spend   += (num(r.spend)   || 0) * frac;
+      by[month].clicks  += (num(r.clicks)  || 0) * frac;
+    });
   });
-  return order.map(k => { const m = by[k]; return Object.assign({}, m, { roas: m.spend ? m.revenue / m.spend : 0 }); });
+  return Object.values(by)
+    .sort((a, b) => monthKeyToNum(a.month) - monthKeyToNum(b.month))
+    .map(m => Object.assign({}, m, { roas: m.spend ? m.revenue / m.spend : 0 }));
 }
 
 // Full-month per-brand totals for the MTD table when a whole month is selected.
@@ -5458,12 +5536,13 @@ function computeMonthTotalsByBrand(allRows, monthKey) {
   if (!allRows || !allRows.length || !monthKey) return null;
   const by = {};
   allRows.forEach(r => {
-    if (monthKeyFromRow(r) !== monthKey) return;
+    const f = weekMonthFraction(weekStrOfRow(r), monthKey);
+    if (f <= 0) return;
     const b = r.brand;
     if (!by[b]) by[b] = { brand: b, mtd_spend: 0, mtd_revenue: 0, mtd_clicks: 0 };
-    by[b].mtd_spend   += num(r.spend)   || 0;
-    by[b].mtd_revenue += num(r.revenue) || 0;
-    by[b].mtd_clicks  += num(r.clicks)  || 0;
+    by[b].mtd_spend   += (num(r.spend)   || 0) * f;
+    by[b].mtd_revenue += (num(r.revenue) || 0) * f;
+    by[b].mtd_clicks  += (num(r.clicks)  || 0) * f;
   });
   const rows = Object.values(by);
   return rows.length ? { label: monthKey, rows } : null;
@@ -5493,25 +5572,26 @@ function computeMonthToDate(allRows, revenueTrend, currentWeek) {
   if (!allRows || !allRows.length || !currentWeek) return null;
   const wfByLabel = {};
   (revenueTrend || []).forEach(t => { if (t.week_label) wfByLabel[t.week_label] = t.week_full; });
-  const monthOfRow = r => monthKeyFromWeekFull(wfByLabel[r.week_label] || r.week).month;
 
   const cur = monthKeyFromWeekFull(wfByLabel[currentWeek] || '');
   if (!cur.month) return null;                       // can't resolve → caller falls back to feed
+  const curMonthKey = (cur.month + ' ' + cur.year).trim();
   const curNum = weekNumOf(currentWeek);
 
   const by = {};
   allRows.forEach(r => {
-    if (monthOfRow(r) !== cur.month) return;         // same month only
     if (weekNumOf(r.week_label) > curNum) return;    // up to the selected week
+    const f = weekMonthFraction(wfByLabel[r.week_label] || r.week, curMonthKey);
+    if (f <= 0) return;                              // day-share of this month only
     const b = r.brand;
     if (!by[b]) by[b] = { brand: b, mtd_spend: 0, mtd_revenue: 0, mtd_clicks: 0 };
-    by[b].mtd_spend   += num(r.spend)   || 0;
-    by[b].mtd_revenue += num(r.revenue) || 0;
-    by[b].mtd_clicks  += num(r.clicks)  || 0;
+    by[b].mtd_spend   += (num(r.spend)   || 0) * f;
+    by[b].mtd_revenue += (num(r.revenue) || 0) * f;
+    by[b].mtd_clicks  += (num(r.clicks)  || 0) * f;
   });
   const rows = Object.values(by);
   if (!rows.length) return null;
-  return { label: (cur.month + ' ' + cur.year).trim(), rows };
+  return { label: curMonthKey, rows };
 }
 
 function applyView() {
@@ -5778,9 +5858,11 @@ function updateWeekPicker() {
     groups[key].push(t);
   });
 
+  const monthTotals = {};
+  buildMonthTotals().forEach(m => { monthTotals[m.month] = m; });
   menu.innerHTML = groupOrder.map(month => {
     const monthRows  = groups[month];
-    const monthRev   = monthRows.reduce((a, t) => a + (num(t.revenue) || 0), 0);
+    const monthRev   = monthTotals[month] ? monthTotals[month].revenue : monthRows.reduce((a, t) => a + (num(t.revenue) || 0), 0);
     const monthRevStr= monthRev > 0 ? '$' + Math.round(monthRev).toLocaleString() : '—';
     const monthSel   = month === STATE.currentMonth ? 'selected' : '';
     const monthHtml  = `<div class="week-picker-item week-picker-month ${monthSel}" data-month="${month}">
@@ -7270,9 +7352,10 @@ function computeRowDelta(r, allRows, mode) {
 
     allRows.forEach(row => {
       if (row.brand !== r.brand || row.platform !== r.platform) return;
-      const mk = monthKeyFromRow(row);
-      if (mk === curMonthKey)  curRev  += num(row.revenue) || 0;
-      if (mk === prevMonthKey) { prevRev += num(row.revenue) || 0; hasPrev = true; }
+      const wf = weekStrOfRow(row), rev = num(row.revenue) || 0;
+      curRev  += rev * weekMonthFraction(wf, curMonthKey);
+      const pf = weekMonthFraction(wf, prevMonthKey);
+      if (pf > 0) { prevRev += rev * pf; hasPrev = true; }
     });
     if (!hasPrev || prevRev === 0) return null;
     return Math.round(((curRev - prevRev) / prevRev) * 1000) / 10;
@@ -7288,9 +7371,12 @@ function buildCampaignRows(data) {
   // Use allRows (multi-week) if available, else weeklyDetail
   let rows = allRows.length ? allRows : weekly;
   // Filter to the selected week or month (same logic as getViewRows)
-  if (allRows.length && (STATE.currentWeek || STATE.currentMonth)) rows = rows.filter(rowInSelection);
-  // For a full-month view, collapse the month's weekly rows into one per campaign.
-  if (allRows.length && STATE.currentMonth) rows = aggregateRowsByCampaign(rows);
+  if (allRows.length && STATE.currentMonth) {
+    // Full month: pro-rate boundary weeks by day-share, then collapse per campaign.
+    rows = aggregateRowsByCampaign(proratedRowsForMonth(rows, STATE.currentMonth));
+  } else if (allRows.length && STATE.currentWeek) {
+    rows = rows.filter(r => r.week_label === STATE.currentWeek);
+  }
   // If no allRows, weeklyDetail is already the current week — no further filter needed
 
   return rows.map((r, i) => {
