@@ -5507,6 +5507,51 @@ function proratedRowsForMonth(rows, monthKey) {
   return out;
 }
 
+// Crash guard: drop any row whose date range is FULLY covered by finer (shorter)
+// rows of the same brand+platform — e.g. a leftover combined "Apr 26-May 2" once
+// its split "Apr 26-30" + "May 1-2" pieces exist. Prevents the double-counting
+// that happens when an old combined row is left in the sheet next to its splits.
+// Only drops when provably redundant (pieces tile the whole range with no gaps),
+// so it NEVER loses data — a partially-covered row is kept untouched.
+function dedupeCoveredRows(rows) {
+  const DAY = 86400000;
+  // parseWeekRange only handles "Mon D-D YYYY"; also accept single-day "Mon D YYYY".
+  const rangeOf = (wf) => {
+    const r = parseWeekRange(wf);
+    if (r) return r;
+    const m = String(wf || '').trim().match(/^([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})$/);
+    if (!m) return null;
+    const mon = _MON_ABBR.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mon < 0) return null;
+    const d = new Date(Date.UTC(+m[3], mon, +m[2]));
+    return { start: d, end: d };
+  };
+  const list = (rows || []).map(r => ({ r, range: rangeOf(weekStrOfRow(r)) }));
+  const drop = new Set();
+  for (const A of list) {
+    if (!A.range) continue;
+    const aStart = A.range.start.getTime(), aEnd = A.range.end.getTime();
+    const aLen = aEnd - aStart;
+    if (aLen <= 0) continue;
+    const pieces = list
+      .filter(B => B !== A && !drop.has(B.r) && B.range
+        && B.r.brand === A.r.brand && B.r.platform === A.r.platform
+        && B.range.start.getTime() >= aStart && B.range.end.getTime() <= aEnd
+        && (B.range.end.getTime() - B.range.start.getTime()) < aLen)
+      .sort((x, y) => x.range.start - y.range.start);
+    if (!pieces.length) continue;
+    let cursor = aStart, covered = true;
+    for (const p of pieces) {
+      if (p.range.start.getTime() > cursor) { covered = false; break; } // gap
+      cursor = Math.max(cursor, p.range.end.getTime() + DAY);
+    }
+    if (covered && cursor > aEnd) drop.add(A.r);
+  }
+  if (drop.size) console.warn('[dedupe] ignored ' + drop.size +
+    ' redundant combined row(s) already covered by split pieces:', [...drop].map(r => weekStrOfRow(r)));
+  return drop.size ? rows.filter(r => !drop.has(r)) : rows;
+}
+
 /* ── Full-month selection support ──────────────────────────────────────────
    A period is either a single week (STATE.currentWeek = 'W6') or a whole month
    (STATE.currentMonth = 'May 2026'); the two are mutually exclusive. Month
@@ -5976,6 +6021,7 @@ function stripExcludedPlatforms(data) {
 
 function renderAll(data) {
   data = stripExcludedPlatforms(data);
+  if (data && data.allRows) data = Object.assign({}, data, { allRows: dedupeCoveredRows(data.allRows) });
   STATE.data = data;
   STATE.lastFetched = Date.now();
   const trend = data.revenueTrend || [];
