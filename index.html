@@ -1264,6 +1264,20 @@ html.theme-light .color-swatch.active {
 .pivot-table td { text-align: right; color: var(--text-primary); }
 .pivot-cell-rev  { font-weight: 700; }
 .pivot-cell-roas { font-size: 10.5px; color: var(--text-secondary); margin-top: 1px; }
+/* Detailed per-cell metric stack: Spend / Revenue / Clicks / ROAS / CPC */
+.pivot-table td { vertical-align: top; }
+.pivot-table th:not(:first-child), .pivot-table td:not(:first-child) { min-width: 132px; }
+.pm { display: flex; flex-direction: column; gap: 2px; }
+.pm-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-size: 11.5px; line-height: 1.35;
+}
+.pm-k {
+  color: var(--text-secondary); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.4px; font-size: 9.5px;
+}
+.pm-v { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pm-v.pm-rev { font-weight: 800; }
 .pivot-table tfoot td {
   font-weight: 800; border-top: 2px solid var(--border-strong); border-bottom: none;
   background: var(--card-elevated);
@@ -1440,6 +1454,18 @@ html.theme-light .report-preview-scroll { background: #e5e9f0; }
 }
 .report-sheet .sheet-pivot-cell-rev  { font-weight: 700; }
 .report-sheet .sheet-pivot-cell-roas { font-size: 10px; color: #64748b; }
+.report-sheet .sheet-pivot td { vertical-align: top; }
+.report-sheet .sheet-pivot .pm { display: flex; flex-direction: column; gap: 1px; }
+.report-sheet .sheet-pivot .pm-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  font-size: 10px; line-height: 1.3;
+}
+.report-sheet .sheet-pivot .pm-k {
+  color: #64748b; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.3px; font-size: 8.5px;
+}
+.report-sheet .sheet-pivot .pm-v { color: #0f172a; font-weight: 600; font-variant-numeric: tabular-nums; }
+.report-sheet .sheet-pivot .pm-v.pm-rev { font-weight: 800; }
 
 .report-sheet .sheet-section { margin-top: 6px; }
 .report-sheet .sheet-foot {
@@ -4155,7 +4181,7 @@ html.theme-light .sidebar-brand-icon {
         <div class="reports-card-head">
           <div>
             <div class="reports-card-title">Brand × Platform Pivot</div>
-            <div class="reports-card-sub">Revenue with ROAS for the latest week</div>
+            <div class="reports-card-sub">Spend · revenue · clicks · ROAS · CPC per brand × platform for the latest week</div>
           </div>
         </div>
         <div class="pivot-wrap">
@@ -6243,43 +6269,25 @@ function renderReports(data) {
   pivot.brands.forEach(b => {
     const cells = pivot.platforms.map(p => {
       const c = pivot.matrix[b]?.[p];
-      if (!c || !c.spend) return '<td>—</td>';
-      const roas = c.spend ? c.revenue / c.spend : null;
-      return `<td>
-        <div class="pivot-cell-rev">${fmtUSD(c.revenue)}</div>
-        <div class="pivot-cell-roas">${roas !== null ? roas.toFixed(2) + 'x' : '—'}</div>
-      </td>`;
+      if (pivotCellIsEmpty(c)) return '<td>—</td>';
+      return `<td>${pivotMetricsHtml(c)}</td>`;
     }).join('');
-    const bt = pivot.brandTotals[b] || { spend:0, revenue:0 };
-    const btRoas = bt.spend ? bt.revenue / bt.spend : null;
+    const bt = pivot.brandTotals[b] || { spend:0, revenue:0, clicks:0 };
     bodyHtml += `<tr>
       <td><span class="brand-pill ${BRAND_PILL[b]||''}">${b}</span></td>
       ${cells}
-      <td>
-        <div class="pivot-cell-rev">${fmtUSD(bt.revenue)}</div>
-        <div class="pivot-cell-roas">${btRoas !== null ? btRoas.toFixed(2) + 'x' : '—'}</div>
-      </td>
+      <td>${pivotMetricsHtml(bt)}</td>
     </tr>`;
   });
 
   // Footer totals row
-  const platTotals = pivot.platforms.map(p => pivot.platformTotals[p] || { spend:0, revenue:0 });
-  const grand = platTotals.reduce((a, t) => ({ spend: a.spend + t.spend, revenue: a.revenue + t.revenue }), { spend:0, revenue:0 });
-  const totalCells = platTotals.map(t => {
-    const rs = t.spend ? t.revenue / t.spend : null;
-    return `<td>
-      <div class="pivot-cell-rev">${fmtUSD(t.revenue)}</div>
-      <div class="pivot-cell-roas">${rs !== null ? rs.toFixed(2) + 'x' : '—'}</div>
-    </td>`;
-  }).join('');
-  const grandRoas = grand.spend ? grand.revenue / grand.spend : null;
+  const platTotals = pivot.platforms.map(p => pivot.platformTotals[p] || { spend:0, revenue:0, clicks:0 });
+  const grand = platTotals.reduce((a, t) => ({ spend: a.spend + t.spend, revenue: a.revenue + t.revenue, clicks: a.clicks + t.clicks }), { spend:0, revenue:0, clicks:0 });
+  const totalCells = platTotals.map(t => `<td>${pivotMetricsHtml(t)}</td>`).join('');
   bodyHtml += `<tr>
     <td><strong>Total</strong></td>
     ${totalCells}
-    <td>
-      <div class="pivot-cell-rev">${fmtUSD(grand.revenue)}</div>
-      <div class="pivot-cell-roas">${grandRoas !== null ? grandRoas.toFixed(2) + 'x' : '—'}</div>
-    </td>
+    <td>${pivotMetricsHtml(grand)}</td>
   </tr>`;
 
   pivotBody.innerHTML = bodyHtml;
@@ -6313,6 +6321,25 @@ function computeMovers(weekly) {
   return { winners, losers };
 }
 
+// Detailed metric stack for a pivot cell: Spend / Revenue / Clicks / ROAS / CPC.
+function pivotMetricsHtml(c) {
+  const spend  = c ? (c.spend   || 0) : 0;
+  const rev    = c ? (c.revenue || 0) : 0;
+  const clicks = c ? (c.clicks  || 0) : 0;
+  const roas = spend  ? rev / spend  : null;
+  const cpc  = clicks ? spend / clicks : null;
+  return `<div class="pm">
+    <div class="pm-row"><span class="pm-k">Spend</span><span class="pm-v">${fmtUSD(spend)}</span></div>
+    <div class="pm-row"><span class="pm-k">Revenue</span><span class="pm-v pm-rev">${fmtUSD(rev)}</span></div>
+    <div class="pm-row"><span class="pm-k">Clicks</span><span class="pm-v">${fmtInt(clicks)}</span></div>
+    <div class="pm-row"><span class="pm-k">ROAS</span><span class="pm-v">${roas !== null ? roas.toFixed(2) + 'x' : '—'}</span></div>
+    <div class="pm-row"><span class="pm-k">CPC</span><span class="pm-v">${cpc !== null ? fmtUSD(cpc) : '—'}</span></div>
+  </div>`;
+}
+function pivotCellIsEmpty(c) {
+  return !c || (!c.spend && !c.revenue && !c.clicks);
+}
+
 function buildPivot(weekly) {
   const matrix = {};
   const platformSet = new Set();
@@ -6322,21 +6349,25 @@ function buildPivot(weekly) {
 
   weekly.forEach(r => {
     const b = r.brand, p = r.platform || '—';
-    const spend = num(r.spend) || 0;
-    const rev   = num(r.revenue) || 0;
+    const spend  = num(r.spend) || 0;
+    const rev    = num(r.revenue) || 0;
+    const clicks = num(r.clicks) || 0;
     if (!b) return;
     brandSet.add(b);
     platformSet.add(p);
     matrix[b] = matrix[b] || {};
-    matrix[b][p] = matrix[b][p] || { spend:0, revenue:0 };
+    matrix[b][p] = matrix[b][p] || { spend:0, revenue:0, clicks:0 };
     matrix[b][p].spend   += spend;
     matrix[b][p].revenue += rev;
-    brandTotals[b] = brandTotals[b] || { spend:0, revenue:0 };
+    matrix[b][p].clicks  += clicks;
+    brandTotals[b] = brandTotals[b] || { spend:0, revenue:0, clicks:0 };
     brandTotals[b].spend   += spend;
     brandTotals[b].revenue += rev;
-    platformTotals[p] = platformTotals[p] || { spend:0, revenue:0 };
+    brandTotals[b].clicks  += clicks;
+    platformTotals[p] = platformTotals[p] || { spend:0, revenue:0, clicks:0 };
     platformTotals[p].spend   += spend;
     platformTotals[p].revenue += rev;
+    platformTotals[p].clicks  += clicks;
   });
   return {
     brands: [...brandSet].sort(),
@@ -6428,26 +6459,20 @@ function buildReportSheetHtml(data) {
   pivot.brands.forEach(b => {
     const cells = pivot.platforms.map(p => {
       const c = pivot.matrix[b]?.[p];
-      if (!c || !c.spend) return '<td>—</td>';
-      const roas = c.spend ? c.revenue / c.spend : null;
-      return `<td><div class="sheet-pivot-cell-rev">${fmtUSD(c.revenue)}</div><div class="sheet-pivot-cell-roas">${roas !== null ? roas.toFixed(2) + 'x' : '—'}</div></td>`;
+      if (pivotCellIsEmpty(c)) return '<td>—</td>';
+      return `<td>${pivotMetricsHtml(c)}</td>`;
     }).join('');
-    const bt = pivot.brandTotals[b] || { spend:0, revenue:0 };
-    const btRoas = bt.spend ? bt.revenue / bt.spend : null;
+    const bt = pivot.brandTotals[b] || { spend:0, revenue:0, clicks:0 };
     pivotRows += `<tr>
       <td>${b}</td>
       ${cells}
-      <td><div class="sheet-pivot-cell-rev">${fmtUSD(bt.revenue)}</div><div class="sheet-pivot-cell-roas">${btRoas !== null ? btRoas.toFixed(2) + 'x' : '—'}</div></td>
+      <td>${pivotMetricsHtml(bt)}</td>
     </tr>`;
   });
 
-  const platTotals = pivot.platforms.map(p => pivot.platformTotals[p] || { spend:0, revenue:0 });
-  const grand = platTotals.reduce((a, t) => ({ spend: a.spend + t.spend, revenue: a.revenue + t.revenue }), { spend:0, revenue:0 });
-  const grandRoas = grand.spend ? grand.revenue / grand.spend : null;
-  const tfootCells = platTotals.map(t => {
-    const rs = t.spend ? t.revenue / t.spend : null;
-    return `<td><div class="sheet-pivot-cell-rev">${fmtUSD(t.revenue)}</div><div class="sheet-pivot-cell-roas">${rs !== null ? rs.toFixed(2) + 'x' : '—'}</div></td>`;
-  }).join('');
+  const platTotals = pivot.platforms.map(p => pivot.platformTotals[p] || { spend:0, revenue:0, clicks:0 });
+  const grand = platTotals.reduce((a, t) => ({ spend: a.spend + t.spend, revenue: a.revenue + t.revenue, clicks: a.clicks + t.clicks }), { spend:0, revenue:0, clicks:0 });
+  const tfootCells = platTotals.map(t => `<td>${pivotMetricsHtml(t)}</td>`).join('');
 
   return `
     <h1>Brand Performance Report</h1>
@@ -6479,7 +6504,7 @@ function buildReportSheetHtml(data) {
         <tr>
           <td>Total</td>
           ${tfootCells}
-          <td><div class="sheet-pivot-cell-rev">${fmtUSD(grand.revenue)}</div><div class="sheet-pivot-cell-roas">${grandRoas !== null ? grandRoas.toFixed(2) + 'x' : '—'}</div></td>
+          <td>${pivotMetricsHtml(grand)}</td>
         </tr>
       </tfoot>
     </table>
