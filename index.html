@@ -6122,17 +6122,32 @@ function canonicalizeFeedWeeks(data) {
   const allRows = data.allRows || [];
   const trend   = data.revenueTrend || [];
 
-  const keyOf = wf => {
+  // Parse a week string to a date range. Handles "May 24 - May 30 2026",
+  // "May 3-9 2026" AND single-day "May 31 2026" (month-boundary split rows the
+  // automation emits) — parseWeekRange alone requires a dash and would drop the
+  // single-day rows from the picker entirely.
+  const rangeOf = wf => {
     const r = parseWeekRange(wf);
+    if (r) return r;
+    const m = String(wf || '').trim().match(/^([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})$/);
+    if (!m) return null;
+    const mon = _MON_ABBR.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mon < 0) return null;
+    const d = new Date(Date.UTC(+m[3], mon, +m[2]));
+    return { start: d, end: d };
+  };
+  const keyOf = wf => {
+    const r = rangeOf(wf);
     if (!r) return null;
     const iso = d => d.toISOString().slice(0, 10);
     return iso(r.start) + '..' + iso(r.end);
   };
   const displayOf = wf => {
-    const r = parseWeekRange(wf);
+    const r = rangeOf(wf);
     if (!r) return String(wf || '').trim();
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
     const mon = d => cap(_MON_ABBR[d.getUTCMonth()]);
+    if (r.start.getTime() === r.end.getTime()) return `${mon(r.start)} ${r.start.getUTCDate()} ${r.start.getUTCFullYear()}`;
     return `${mon(r.start)} ${r.start.getUTCDate()} - ${mon(r.end)} ${r.end.getUTCDate()} ${r.end.getUTCFullYear()}`;
   };
 
@@ -6140,7 +6155,7 @@ function canonicalizeFeedWeeks(data) {
   const info = new Map();
   const register = wf => {
     const k = keyOf(wf);
-    if (k && !info.has(k)) info.set(k, { key: k, start: parseWeekRange(wf).start.getTime(), display: displayOf(wf) });
+    if (k && !info.has(k)) info.set(k, { key: k, start: rangeOf(wf).start.getTime(), display: displayOf(wf) });
     return k;
   };
   allRows.forEach(r => register(weekStrOfRow(r)));
