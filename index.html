@@ -1283,6 +1283,73 @@ html.theme-light .color-swatch.active {
   background: var(--card-elevated);
 }
 
+/* ── Wide Brand × Platform pivot (grouped platform columns) ─────────────
+   Self-contained white "report sheet" look; identical on-screen and in PDF. */
+.pv2-scroll { margin-top: 4px; overflow-x: auto; }
+.pv2-scroll-inner { min-width: max-content; }
+.pv2 {
+  border-collapse: separate; border-spacing: 0; width: 100%;
+  background: #ffffff; color: #0f172a; border-radius: 12px; overflow: hidden;
+  box-shadow: 0 0 0 1px #e2e8f0; font-variant-numeric: tabular-nums;
+}
+.pv2 th, .pv2 td { padding: 12px 14px; text-align: center; white-space: nowrap; }
+.pv2 thead th { font-weight: 800; }
+.pv2-brand-h {
+  text-align: left !important; vertical-align: middle;
+  font-size: 11px; letter-spacing: 0.6px; color: #334155;
+  background: #f8fafc; border-bottom: 1px solid #e2e8f0;
+}
+.pv2-grp {
+  font-size: 12.5px; letter-spacing: 0.3px; border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.pv2-grp-inner { display: inline-flex; align-items: center; gap: 8px; }
+.pv2-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.pv2-grp-total { background: #1e293b !important; color: #fff !important; letter-spacing: 1px; }
+.pv2-sub {
+  font-size: 9.5px; font-weight: 800; letter-spacing: 0.6px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.pv2-sub-total { background: #334155 !important; color: #cbd5e1 !important; }
+.pv2-brand {
+  text-align: left !important; font-weight: 700; font-size: 13px; color: #0f172a;
+  white-space: nowrap; vertical-align: middle;
+}
+.pv2-brand-inner { display: inline-flex; align-items: center; gap: 10px; }
+.pv2-badge {
+  width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 15px; line-height: 1; color: #fff;
+}
+.pv2-brand-name { line-height: 1.1; }
+.pv2 tbody td { border-bottom: 1px solid #eef2f6; font-size: 12.5px; color: #334155; }
+.pv2 tbody tr:last-child td { border-bottom: none; }
+.pv2-rev { font-weight: 800; color: #0f172a; }
+.pv2-cell-total { background: #fafbfc; font-weight: 700; }
+.pv2-gb { border-left: 1px solid #e2e8f0; }
+.pv2-total-row td {
+  border-top: 2px solid #cbd5e1; font-weight: 800; font-size: 12.5px;
+}
+.pv2-brand-total { background: #1e293b !important; color: #fff !important; }
+.pv2-foot { color: #0f172a; }
+.pv2-foot-total { background: #1e293b !important; color: #fff !important; }
+.pv2-notes {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 16px;
+  flex-wrap: wrap; margin-top: 16px; padding: 0 2px;
+}
+.pv2-notes-title { font-size: 12px; font-weight: 800; color: #2563eb; margin-bottom: 6px; }
+.pv2-note { font-size: 11.5px; color: #64748b; line-height: 1.9; position: relative; padding-left: 14px; }
+.pv2-note::before { content: "•"; position: absolute; left: 2px; color: #94a3b8; }
+.pv2-generated { font-size: 11px; color: #2563eb; font-style: italic; }
+/* Keep text dark & readable on hover (override the global white-text row hover). */
+.pv2 tbody tr:hover td { background: #eef4ff !important; color: #0f172a !important; }
+.pv2 tbody tr:hover td.pv2-rev { color: #0f172a !important; }
+.pv2 tbody tr:hover td.pv2-cell-total { background: #e7eefb !important; }
+.pv2 tbody tr:hover .pv2-brand-name,
+.pv2 tbody tr:hover .pv2-brand { color: #0f172a !important; }
+.report-sheet .pv2 { box-shadow: none; border: 1px solid #e2e8f0; }
+.report-sheet .pv2-notes { margin-top: 14px; }
+/* Static (print / PDF) render has no hover — nothing to override there. */
+
 /* ═══════════════════════════════════════
    ALERTS PAGE
 ═══════════════════════════════════════ */
@@ -4184,12 +4251,7 @@ html.theme-light .sidebar-brand-icon {
             <div class="reports-card-sub">Spend · revenue · clicks · ROAS · CPC per brand × platform for the latest week</div>
           </div>
         </div>
-        <div class="pivot-wrap">
-          <table class="pivot-table" id="reportsPivot">
-            <thead><tr id="pivotHead"></tr></thead>
-            <tbody id="pivotBody"></tbody>
-          </table>
-        </div>
+        <div class="pv2-scroll" id="reportsPivotHost"></div>
       </div>
 
     </div>
@@ -6045,7 +6107,86 @@ function stripExcludedPlatforms(data) {
   return Object.assign({}, data, { allRows, weeklyDetail, revenueTrend, dailySpend });
 }
 
+// Collapse every labeling of the SAME calendar week onto one canonical week.
+// The automation feeds data per week, but the same week can arrive with two
+// different label strings (e.g. "Jun 28 - Jul 4 2026" from one platform's tab
+// and "Jun 28-Jul 4 2026" from another). Grouped by raw string, that week shows
+// up twice in the picker — each entry holding only half the brands. Here we key
+// every row/trend entry by its parsed date range and remap them to a single
+// canonical label + display string, so a week appears ONCE and shows all its
+// brands. Month attribution is unchanged: boundary weeks are still pro-rated by
+// day-share downstream (weekMonthFraction), so "Jun 28 - Jul 4" still counts its
+// Jun 28-30 days toward June and its Jul 1-4 days toward July.
+function canonicalizeFeedWeeks(data) {
+  if (!data) return data;
+  const allRows = data.allRows || [];
+  const trend   = data.revenueTrend || [];
+
+  const keyOf = wf => {
+    const r = parseWeekRange(wf);
+    if (!r) return null;
+    const iso = d => d.toISOString().slice(0, 10);
+    return iso(r.start) + '..' + iso(r.end);
+  };
+  const displayOf = wf => {
+    const r = parseWeekRange(wf);
+    if (!r) return String(wf || '').trim();
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+    const mon = d => cap(_MON_ABBR[d.getUTCMonth()]);
+    return `${mon(r.start)} ${r.start.getUTCDate()} - ${mon(r.end)} ${r.end.getUTCDate()} ${r.end.getUTCFullYear()}`;
+  };
+
+  // Distinct canonical weeks, chronological → W1..Wn (keeps weekNumOf ordering).
+  const info = new Map();
+  const register = wf => {
+    const k = keyOf(wf);
+    if (k && !info.has(k)) info.set(k, { key: k, start: parseWeekRange(wf).start.getTime(), display: displayOf(wf) });
+    return k;
+  };
+  allRows.forEach(r => register(weekStrOfRow(r)));
+  trend.forEach(t => register(t.week_full || ''));
+  if (!info.size) return data; // nothing parseable (e.g. SAMPLE fallback) — leave as-is
+
+  const ordered = [...info.values()].sort((a, b) => a.start - b.start);
+  ordered.forEach((w, i) => { w.label = 'W' + (i + 1); });
+
+  const newAllRows = allRows.map(r => {
+    const w = info.get(keyOf(weekStrOfRow(r)));
+    return w ? Object.assign({}, r, { week: w.display, week_full: w.display, week_label: w.label }) : r;
+  });
+
+  // Rebuild the trend: one merged entry per canonical week, summed from rows.
+  const agg = {};
+  newAllRows.forEach(r => {
+    const k = keyOf(weekStrOfRow(r));
+    if (!k) return;
+    if (!agg[k]) agg[k] = { revenue: 0, spend: 0, clicks: 0 };
+    agg[k].revenue += num(r.revenue) || 0;
+    agg[k].spend   += num(r.spend)   || 0;
+    agg[k].clicks  += num(r.clicks)  || 0;
+  });
+  const tabByKey = {};
+  trend.forEach(t => { const k = keyOf(t.week_full || ''); if (k && t.source_tab && !tabByKey[k]) tabByKey[k] = t.source_tab; });
+
+  const newTrend = ordered.map(w => {
+    const a = agg[w.key] || { revenue: 0, spend: 0, clicks: 0 };
+    return {
+      week_label: w.label,
+      week_full:  w.display,
+      revenue:    Math.round(a.revenue),
+      spend:      Math.round(a.spend),
+      clicks:     Math.round(a.clicks),
+      roas:       a.spend ? Math.round((a.revenue / a.spend) * 100) / 100 : 0,
+      source_tab: tabByKey[w.key]
+    };
+  });
+  const dailySpend = newTrend.map(t => ({ date: t.week_label, spend: t.spend }));
+
+  return Object.assign({}, data, { allRows: newAllRows, revenueTrend: newTrend, dailySpend });
+}
+
 function renderAll(data) {
+  data = canonicalizeFeedWeeks(data);
   data = stripExcludedPlatforms(data);
   if (data && data.allRows) data = Object.assign({}, data, { allRows: dedupeCoveredRows(data.allRows) });
   STATE.data = data;
@@ -6240,9 +6381,8 @@ function renderReports(data) {
   const periodEl  = document.getElementById('reportPeriod');
   const winnersEl = document.getElementById('moversWinners');
   const losersEl  = document.getElementById('moversLosers');
-  const pivotHead = document.getElementById('pivotHead');
-  const pivotBody = document.getElementById('pivotBody');
-  if (!summaryEl || !pivotBody) return;
+  const pivotHost = document.getElementById('reportsPivotHost');
+  if (!summaryEl || !pivotHost) return;
 
   const meta = data.meta || {};
   const weekly = data.weeklyDetail || [];
@@ -6263,34 +6403,7 @@ function renderReports(data) {
 
   // Brand × Platform pivot
   const pivot = buildPivot(weekly);
-  pivotHead.innerHTML = '<th>Brand</th>' + pivot.platforms.map(p => `<th>${p}</th>`).join('') + '<th>Total</th>';
-
-  let bodyHtml = '';
-  pivot.brands.forEach(b => {
-    const cells = pivot.platforms.map(p => {
-      const c = pivot.matrix[b]?.[p];
-      if (pivotCellIsEmpty(c)) return '<td>—</td>';
-      return `<td>${pivotMetricsHtml(c)}</td>`;
-    }).join('');
-    const bt = pivot.brandTotals[b] || { spend:0, revenue:0, clicks:0 };
-    bodyHtml += `<tr>
-      <td><span class="brand-pill ${BRAND_PILL[b]||''}">${b}</span></td>
-      ${cells}
-      <td>${pivotMetricsHtml(bt)}</td>
-    </tr>`;
-  });
-
-  // Footer totals row
-  const platTotals = pivot.platforms.map(p => pivot.platformTotals[p] || { spend:0, revenue:0, clicks:0 });
-  const grand = platTotals.reduce((a, t) => ({ spend: a.spend + t.spend, revenue: a.revenue + t.revenue, clicks: a.clicks + t.clicks }), { spend:0, revenue:0, clicks:0 });
-  const totalCells = platTotals.map(t => `<td>${pivotMetricsHtml(t)}</td>`).join('');
-  bodyHtml += `<tr>
-    <td><strong>Total</strong></td>
-    ${totalCells}
-    <td>${pivotMetricsHtml(grand)}</td>
-  </tr>`;
-
-  pivotBody.innerHTML = bodyHtml;
+  pivotHost.innerHTML = pivotTableHtml(pivot) + pivotNotesHtml(meta);
 }
 
 function moverRow(m, rank, isUp) {
@@ -6321,23 +6434,104 @@ function computeMovers(weekly) {
   return { winners, losers };
 }
 
-// Detailed metric stack for a pivot cell: Spend / Revenue / Clicks / ROAS / CPC.
-function pivotMetricsHtml(c) {
-  const spend  = c ? (c.spend   || 0) : 0;
-  const rev    = c ? (c.revenue || 0) : 0;
-  const clicks = c ? (c.clicks  || 0) : 0;
-  const roas = spend  ? rev / spend  : null;
-  const cpc  = clicks ? spend / clicks : null;
-  return `<div class="pm">
-    <div class="pm-row"><span class="pm-k">Spend</span><span class="pm-v">${fmtUSD(spend)}</span></div>
-    <div class="pm-row"><span class="pm-k">Revenue</span><span class="pm-v pm-rev">${fmtUSD(rev)}</span></div>
-    <div class="pm-row"><span class="pm-k">Clicks</span><span class="pm-v">${fmtInt(clicks)}</span></div>
-    <div class="pm-row"><span class="pm-k">ROAS</span><span class="pm-v">${roas !== null ? roas.toFixed(2) + 'x' : '—'}</span></div>
-    <div class="pm-row"><span class="pm-k">CPC</span><span class="pm-v">${cpc !== null ? fmtUSD(cpc) : '—'}</span></div>
-  </div>`;
-}
 function pivotCellIsEmpty(c) {
   return !c || (!c.spend && !c.revenue && !c.clicks);
+}
+
+// ── Wide Brand × Platform pivot: grouped platform columns, each with
+//    Spend / Revenue / Clicks / ROAS / CPC sub-columns. Shared by the
+//    on-screen Reports tab and the PDF / Preview report sheet.
+const PIVOT_METRICS = ['SPEND', 'REVENUE', 'CLICKS', 'ROAS', 'CPC'];
+const PIVOT_TINTS = [
+  { accent:'#2563eb', head:'#eff6ff', sub:'#dbeafe' }, // blue
+  { accent:'#16a34a', head:'#f0fdf4', sub:'#dcfce7' }, // green
+  { accent:'#d97706', head:'#fffbeb', sub:'#fef3c7' }, // amber
+  { accent:'#7c3aed', head:'#f5f3ff', sub:'#ede9fe' }, // violet
+  { accent:'#e11d48', head:'#fff1f2', sub:'#ffe4e6' }, // rose
+  { accent:'#0891b2', head:'#ecfeff', sub:'#cffafe' }  // cyan
+];
+const BRAND_ICON = {
+  'Cannabis Life': { emoji:'🌿', color:'#0891b2' },
+  'Greenroads':    { emoji:'✚',  color:'#16a34a' },
+  'HempBombs':     { emoji:'💣', color:'#0d9488' },
+  'Mystic Labs':   { emoji:'⚗️', color:'#7c3aed' }
+};
+function brandBadge(b) {
+  const ic = BRAND_ICON[b] || { emoji: (b || '?').charAt(0).toUpperCase(), color:'#64748b' };
+  return `<span class="pv2-badge" style="background:${ic.color}">${ic.emoji}</span>`;
+}
+
+// One group's five metric <td>s. `tint` null → the dark Total group.
+function pivotMetricCells(c, opts) {
+  opts = opts || {};
+  const empty = pivotCellIsEmpty(c);
+  const spend = c ? (c.spend || 0) : 0;
+  const rev   = c ? (c.revenue || 0) : 0;
+  const clk   = c ? (c.clicks || 0) : 0;
+  const roas  = spend ? rev / spend : null;
+  const cpc   = clk   ? spend / clk : null;
+  const vals = empty
+    ? ['—', '—', '—', '—', '—']
+    : [fmtUSD(spend), fmtUSD(rev), fmtInt(clk),
+       roas !== null ? roas.toFixed(2) + 'x' : '—',
+       cpc  !== null ? fmtUSD(cpc) : '—'];
+  const base = 'pv2-cell' + (opts.cellClass ? ' ' + opts.cellClass : '');
+  const style = opts.cellStyle ? ` style="${opts.cellStyle}"` : '';
+  return vals.map((v, i) =>
+    `<td class="${base}${i === 0 ? ' pv2-gb' : ''}${i === 1 ? ' pv2-rev' : ''}"${style}>${v}</td>`
+  ).join('');
+}
+
+function pivotTableHtml(pivot) {
+  const groups = pivot.platforms.map((p, i) => ({ key: p, label: p, tint: PIVOT_TINTS[i % PIVOT_TINTS.length] }));
+
+  // Two-row header: platform groups (colspan 5) + metric sub-labels.
+  let head1 = '<th class="pv2-brand-h" rowspan="2">BRAND</th>';
+  let head2 = '';
+  groups.forEach(g => {
+    head1 += `<th class="pv2-grp pv2-gb" colspan="5" style="background:${g.tint.head};color:${g.tint.accent}">`
+      + `<span class="pv2-grp-inner"><span class="pv2-dot" style="background:${g.tint.accent}"></span>${g.label}</span></th>`;
+    head2 += PIVOT_METRICS.map((m, i) =>
+      `<th class="pv2-sub${i === 0 ? ' pv2-gb' : ''}" style="background:${g.tint.sub};color:${g.tint.accent}">${m}</th>`
+    ).join('');
+  });
+  head1 += '<th class="pv2-grp pv2-grp-total pv2-gb" colspan="5">TOTAL</th>';
+  head2 += PIVOT_METRICS.map((m, i) => `<th class="pv2-sub pv2-sub-total${i === 0 ? ' pv2-gb' : ''}">${m}</th>`).join('');
+
+  // Body: one row per brand.
+  let body = '';
+  pivot.brands.forEach(b => {
+    let row = `<td class="pv2-brand"><span class="pv2-brand-inner">${brandBadge(b)}<span class="pv2-brand-name">${b}</span></span></td>`;
+    groups.forEach(g => { row += pivotMetricCells(pivot.matrix[b]?.[g.key]); });
+    row += pivotMetricCells(pivot.brandTotals[b], { cellClass: 'pv2-cell-total' });
+    body += `<tr>${row}</tr>`;
+  });
+
+  // Footer: totals row, tinted per group, dark for the Total group.
+  const platTotals = groups.map(g => pivot.platformTotals[g.key] || { spend:0, revenue:0, clicks:0 });
+  const grand = platTotals.reduce((a, t) => ({ spend:a.spend+t.spend, revenue:a.revenue+t.revenue, clicks:a.clicks+t.clicks }), { spend:0, revenue:0, clicks:0 });
+  let foot = `<td class="pv2-brand pv2-brand-total"><span class="pv2-brand-inner"><span class="pv2-badge" style="background:#334155">📊</span><span class="pv2-brand-name">TOTAL</span></span></td>`;
+  groups.forEach((g, i) => { foot += pivotMetricCells(platTotals[i], { cellClass: 'pv2-foot', cellStyle: `background:${g.tint.sub};color:#0f172a` }); });
+  foot += pivotMetricCells(grand, { cellClass: 'pv2-foot pv2-foot-total' });
+
+  return `<div class="pv2-scroll-inner"><table class="pv2">
+    <thead><tr>${head1}</tr><tr>${head2}</tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr class="pv2-total-row">${foot}</tr></tfoot>
+  </table></div>`;
+}
+
+function pivotNotesHtml(meta) {
+  const gen = new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+  return `<div class="pv2-notes">
+    <div class="pv2-notes-list">
+      <div class="pv2-notes-title">Notes</div>
+      <div class="pv2-note">ROAS = Revenue / Spend</div>
+      <div class="pv2-note">CPC = Spend / Clicks</div>
+      <div class="pv2-note">Dash (—) indicates no data for the selected platform</div>
+    </div>
+    <div class="pv2-generated">Generated on: ${gen}</div>
+  </div>`;
 }
 
 function buildPivot(weekly) {
@@ -6416,10 +6610,10 @@ function generateWowSummary(data) {
 
 function copyReportToClipboard() {
   const summary = document.getElementById('reportSummary');
-  const pivot   = document.getElementById('reportsPivot');
+  const pivot   = document.getElementById('reportsPivotHost');
   if (!summary) return;
 
-  const stripHtml = el => (el.innerText || el.textContent || '').replace(/\s+\n/g, '\n').trim();
+  const stripHtml = el => (el ? (el.innerText || el.textContent || '') : '').replace(/\s+\n/g, '\n').trim();
   const text = [
     'WEEKLY PERFORMANCE REPORT',
     document.getElementById('reportPeriod')?.textContent || '',
@@ -6454,26 +6648,6 @@ function buildReportSheetHtml(data) {
     ? movers.losers.map((m, i) => sheetMoverRow(m, i + 1, false)).join('')
     : '<div class="sheet-mover-row" style="color:#64748b">No WoW drops this week.</div>';
 
-  // Pivot rows
-  let pivotRows = '';
-  pivot.brands.forEach(b => {
-    const cells = pivot.platforms.map(p => {
-      const c = pivot.matrix[b]?.[p];
-      if (pivotCellIsEmpty(c)) return '<td>—</td>';
-      return `<td>${pivotMetricsHtml(c)}</td>`;
-    }).join('');
-    const bt = pivot.brandTotals[b] || { spend:0, revenue:0, clicks:0 };
-    pivotRows += `<tr>
-      <td>${b}</td>
-      ${cells}
-      <td>${pivotMetricsHtml(bt)}</td>
-    </tr>`;
-  });
-
-  const platTotals = pivot.platforms.map(p => pivot.platformTotals[p] || { spend:0, revenue:0, clicks:0 });
-  const grand = platTotals.reduce((a, t) => ({ spend: a.spend + t.spend, revenue: a.revenue + t.revenue, clicks: a.clicks + t.clicks }), { spend:0, revenue:0, clicks:0 });
-  const tfootCells = platTotals.map(t => `<td>${pivotMetricsHtml(t)}</td>`).join('');
-
   return `
     <h1>Brand Performance Report</h1>
     <div class="sheet-meta">
@@ -6491,23 +6665,8 @@ function buildReportSheetHtml(data) {
     <div class="sheet-section">${losersHtml}</div>
 
     <h2>Brand × Platform Pivot</h2>
-    <table class="sheet-pivot">
-      <thead>
-        <tr>
-          <th>Brand</th>
-          ${pivot.platforms.map(p => `<th>${p}</th>`).join('')}
-          <th>Total</th>
-        </tr>
-      </thead>
-      <tbody>${pivotRows}</tbody>
-      <tfoot>
-        <tr>
-          <td>Total</td>
-          ${tfootCells}
-          <td>${pivotMetricsHtml(grand)}</td>
-        </tr>
-      </tfoot>
-    </table>
+    ${pivotTableHtml(pivot)}
+    ${pivotNotesHtml(meta)}
 
     <div class="sheet-foot">
       <span>Brand Performance Dashboard</span>
