@@ -539,7 +539,11 @@ body {
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
 /* ═══════════════ MAIN ═══════════════ */
-.main { margin-left:var(--sidebar-w); flex:1; display:flex; flex-direction:column; min-height:100vh; }
+/* min-width:0 is essential: as a flex child of the flex <body>, .main would
+   otherwise grow to its widest content (a wide data table), pushing the whole
+   page past the viewport and causing horizontal scroll on mobile. With it, the
+   table wrappers' overflow-x:auto scroll internally instead. */
+.main { margin-left:var(--sidebar-w); flex:1; min-width:0; display:flex; flex-direction:column; min-height:100vh; }
 
 .topbar {
   background:rgba(11,16,32,0.9);
@@ -3321,6 +3325,32 @@ html.theme-light .sidebar-brand-icon {
 
   /* Charts: keep canvas responsive */
   canvas { max-width: 100% !important; height: auto !important; }
+
+  /* ── Wide data tables scroll horizontally instead of being clipped ──
+     Base cells are white-space:nowrap, so the table keeps its natural width;
+     the wrappers used overflow:hidden which cut columns off on narrow screens. */
+  .table-wrap, .table-wrap.scrollable, .camp-table-wrap {
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  /* Table header bar: title on top, full-width search/tools below. */
+  .table-head-bar { flex-wrap: wrap; gap: 10px; padding: 14px 16px; }
+  .table-tools { width: 100%; }
+  .table-search { flex: 1 1 auto; min-width: 0; }
+
+  /* Page hero stacks so action buttons never crowd the title. */
+  .page-hero { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .page-hero h2 { font-size: 30px; }
+  .reports-actions { flex-wrap: wrap; }
+  .reports-btn { flex: 1 1 auto; text-align: center; justify-content: center; }
+
+  /* Reports / Alerts: drop the doubled inner side padding, tighten cards. */
+  .reports-wrap, .alerts-wrap { padding-left: 0; padding-right: 0; }
+  .reports-card { padding: 16px 15px; }
+
+  /* Report preview modal: use more of the small screen, wrap toolbar. */
+  .report-preview-overlay { padding: 12px; }
+  .report-preview-toolbar { flex-wrap: wrap; gap: 8px; }
+  .report-preview-scroll { padding: 14px 10px; }
 }
 
 @media (max-width: 480px) {
