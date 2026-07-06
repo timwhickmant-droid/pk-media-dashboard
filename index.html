@@ -1480,6 +1480,9 @@ html.theme-light .report-preview-scroll { background: #e5e9f0; }
    container would cut off every column past the sheet edge (IMPACT/TOTAL). */
 .report-sheet .pv2-scroll { overflow: visible; margin-top: 0; }
 .report-sheet .pv2-scroll-inner { min-width: 100%; }
+/* Keep the pivot and each mover list intact across PDF page breaks (html2pdf
+   reads these in its 'css' pagebreak mode) so a page never slices a table row. */
+.report-sheet .pv2, .report-sheet .sheet-section { break-inside: avoid; page-break-inside: avoid; }
 .report-sheet .pv2 { font-size: 11.5px; }
 .report-sheet .pv2 th, .report-sheet .pv2 td { padding: 8px 10px; }
 .report-sheet .pv2-badge { width: 24px; height: 24px; font-size: 12px; }
@@ -6841,41 +6844,54 @@ function downloadReportPdf() {
     return;
   }
 
-  renderReportSheet();
-  const sheet = document.getElementById('reportSheet');
-  if (!sheet) return;
-
-  // Open the preview overlay first so the sheet has full layout for capture.
-  const ov = document.getElementById('reportPreviewOverlay');
-  const wasOpen = ov && ov.classList.contains('open');
-  if (ov && !wasOpen) ov.classList.add('open');
-
   const src = STATE.viewData || STATE.data;
   const meta = (src && src.meta) || {};
   const periodSlug = (meta.period_label || meta.source_tab || 'report').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
   const filename = `brand-performance-${periodSlug}-${new Date().toISOString().slice(0,10)}.pdf`;
 
+  // Render into an isolated, auto-width host instead of capturing #reportSheet.
+  // Capturing the sheet directly clipped the TOTAL group off the PDF: the
+  // sheet's max-width (and the preview modal's overflow:auto scroll box) cut off
+  // everything past its right edge, and html2canvas rasterizes only that box.
+  // The host grows to fit the full 15-column pivot (see width below), and an
+  // offscreen 0×0/overflow-hidden wrapper keeps it out of view while preserving
+  // normal-flow layout so html2canvas measures a correct height.
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1';
+  const host = document.createElement('div');
+  host.className = 'report-sheet';
+  host.style.maxWidth = 'none';
+  // min-content (not max-content): the nowrap pivot sets the real minimum width
+  // so no column is clipped, while the summary paragraph still wraps instead of
+  // blowing the sheet out to one very long line.
+  host.style.width = 'min-content';
+  host.style.margin = '0';
+  host.innerHTML = buildReportSheetHtml(src);
+  wrap.appendChild(host);
+  document.body.appendChild(wrap);
+
+  const fullWidth = Math.max(Math.ceil(host.getBoundingClientRect().width), 760);
+
   showToast('Generating PDF…');
 
-  // Landscape A4 fits the wide 15-column pivot; capture at desktop width so the
-  // layout never collapses to a narrow/stacked form, and full width so no
-  // columns are clipped.
-  const captureWidth = Math.max(sheet.scrollWidth, 1240);
+  // Landscape A4 fits the wide pivot; capture at the host's true full width so
+  // no columns are clipped.
   const opts = {
     margin:       [10, 10, 12, 10],
     filename:     filename,
     image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: captureWidth + 120, scrollX: 0, scrollY: 0 },
+    html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: fullWidth + 40, width: fullWidth, scrollX: 0, scrollY: 0 },
     jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' },
-    pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    pagebreak:    { mode: ['css', 'legacy'] }
   };
 
-  html2pdf().set(opts).from(sheet).save()
+  html2pdf().set(opts).from(host).save()
     .then(() => { showToast('PDF downloaded'); })
     .catch(err => {
       console.error('PDF generation failed:', err);
       showToast('PDF generation failed — see console');
-    });
+    })
+    .finally(() => { wrap.remove(); });
 }
 
 /* ═══════════════════════════════════════
