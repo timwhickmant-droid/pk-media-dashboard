@@ -1292,8 +1292,14 @@ html.theme-light .color-swatch.active {
   background: #ffffff; color: #0f172a; border-radius: 12px; overflow: hidden;
   box-shadow: 0 0 0 1px #e2e8f0; font-variant-numeric: tabular-nums;
 }
-.pv2 th, .pv2 td { padding: 12px 14px; text-align: center; white-space: nowrap; }
+.pv2 th, .pv2 td { padding: 11px 16px; text-align: center; white-space: nowrap; }
 .pv2 thead th { font-weight: 800; }
+/* Numbers read best right-aligned; brand labels stay left, group heads centered. */
+.pv2 tbody td, .pv2 tfoot td, .pv2-sub { text-align: right; }
+.pv2 tbody td.pv2-brand, .pv2 tfoot td.pv2-brand-total { text-align: left; }
+/* Subtle zebra striping for row scannability. */
+.pv2 tbody tr:nth-child(even) td { background: #f8fafc; }
+.pv2 tbody tr:nth-child(even) td.pv2-cell-total { background: #eef2f7; }
 .pv2-brand-h {
   text-align: left !important; vertical-align: middle;
   font-size: 11px; letter-spacing: 0.6px; color: #334155;
@@ -1326,6 +1332,9 @@ html.theme-light .color-swatch.active {
 .pv2-rev { font-weight: 800; color: #0f172a; }
 .pv2-cell-total { background: #fafbfc; font-weight: 700; }
 .pv2-gb { border-left: 1px solid #e2e8f0; }
+/* Bolder divider marking where the TOTAL group begins. */
+.pv2 th.pv2-grp-total, .pv2 th.pv2-sub-total.pv2-gb,
+.pv2 td.pv2-cell-total.pv2-gb, .pv2 td.pv2-foot-total.pv2-gb { border-left: 2px solid #cbd5e1; }
 .pv2-total-row td {
   border-top: 2px solid #cbd5e1; font-weight: 800; font-size: 12.5px;
 }
@@ -1430,7 +1439,7 @@ html.theme-light .color-swatch.active {
 .report-preview-modal {
   background: var(--card-bg); border: 1px solid var(--border-strong);
   border-radius: 16px;
-  width: 100%; max-width: 920px;
+  width: 100%; max-width: 1300px;
   display: flex; flex-direction: column;
   overflow: hidden;
   box-shadow: 0 24px 80px rgba(0,0,0,0.5);
@@ -1454,13 +1463,21 @@ html.theme-light .report-preview-scroll { background: #e5e9f0; }
 /* The "sheet" — always rendered in dark-text-on-white-paper, regardless of theme,
    so print/PDF output looks identical to what the user previews. */
 .report-sheet {
-  width: 100%; max-width: 760px; margin: 0 auto;
+  width: 100%; max-width: 1240px; margin: 0 auto;
   background: #fff; color: #111827;
   padding: 36px 40px;
   border-radius: 6px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.35);
   font-family: 'Inter','Segoe UI',sans-serif;
 }
+/* Inside the report sheet the wide pivot must lay out at full width and NOT
+   clip — html2canvas rasterizes the sheet for the PDF, and an overflow:auto
+   container would cut off every column past the sheet edge (IMPACT/TOTAL). */
+.report-sheet .pv2-scroll { overflow: visible; margin-top: 0; }
+.report-sheet .pv2-scroll-inner { min-width: 100%; }
+.report-sheet .pv2 { font-size: 11.5px; }
+.report-sheet .pv2 th, .report-sheet .pv2 td { padding: 8px 10px; }
+.report-sheet .pv2-badge { width: 24px; height: 24px; font-size: 12px; }
 .report-sheet h1 {
   font-size: 22px; font-weight: 800; color: #0f172a;
   margin: 0 0 4px;
@@ -6755,12 +6772,16 @@ function downloadReportPdf() {
 
   showToast('Generating PDF…');
 
+  // Landscape A4 fits the wide 15-column pivot; capture at desktop width so the
+  // layout never collapses to a narrow/stacked form, and full width so no
+  // columns are clipped.
+  const captureWidth = Math.max(sheet.scrollWidth, 1240);
   const opts = {
-    margin:       [12, 12, 12, 12],
+    margin:       [10, 10, 12, 10],
     filename:     filename,
-    image:        { type: 'jpeg', quality: 0.96 },
-    html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    image:        { type: 'jpeg', quality: 0.98 },
+    html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: captureWidth + 120, scrollX: 0, scrollY: 0 },
+    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' },
     pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
   };
 
