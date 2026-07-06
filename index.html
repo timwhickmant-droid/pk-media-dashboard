@@ -1236,21 +1236,22 @@ html.theme-light .color-swatch.active {
   background: var(--card-elevated); border: 1px solid var(--border-soft);
 }
 .mover-rank {
-  width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
   background: rgba(148,163,184,0.16); color: var(--text-secondary);
-  font-size: 11px; font-weight: 800;
+  font-size: 12px; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
 }
 .mover-body { flex: 1; min-width: 0; }
-.mover-pair { font-size: 13px; font-weight: 700; color: var(--text-primary); }
-.mover-sub  { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.mover-pair { font-size: 14.5px; font-weight: 700; color: var(--text-primary); }
+.mover-sub  { font-size: 12.5px; color: var(--text-secondary); margin-top: 3px; }
 .mover-delta {
-  font-size: 13px; font-weight: 800;
-  padding: 4px 9px; border-radius: 999px; white-space: nowrap;
+  font-size: 14px; font-weight: 800;
+  padding: 5px 11px; border-radius: 999px; white-space: nowrap;
 }
 .mover-delta.up   { color: #34d399; background: rgba(52,211,153,0.12); }
 .mover-delta.down { color: #f87171; background: rgba(248,113,113,0.12); }
-.movers-empty { font-size: 12px; color: var(--text-secondary); padding: 12px; text-align: center; }
+.movers-empty { font-size: 13.5px; color: var(--text-secondary); padding: 18px 12px; text-align: center; }
+.mover-row { padding: 12px 14px; }
 
 /* Pivot */
 .pivot-wrap { overflow-x: auto; }
@@ -4274,7 +4275,7 @@ html.theme-light .sidebar-brand-icon {
           <div class="reports-card-head">
             <div>
               <div class="reports-card-title">High Performers</div>
-              <div class="reports-card-sub">Biggest WoW revenue gains</div>
+              <div class="reports-card-sub" id="highPerfSub">Biggest WoW revenue gains</div>
             </div>
           </div>
           <div class="movers-list" id="moversWinners"></div>
@@ -4283,7 +4284,7 @@ html.theme-light .sidebar-brand-icon {
           <div class="reports-card-head">
             <div>
               <div class="reports-card-title">Low Performers</div>
-              <div class="reports-card-sub">Biggest WoW revenue drops</div>
+              <div class="reports-card-sub" id="lowPerfSub">Biggest WoW revenue drops</div>
             </div>
           </div>
           <div class="movers-list" id="moversLosers"></div>
@@ -6454,14 +6455,22 @@ function renderReports(data) {
   // Auto WoW summary
   summaryEl.innerHTML = generateWowSummary(data);
 
-  // Top movers
-  const movers = computeMovers(weekly);
+  // Top movers — reflect the selected period: a full month compares month-over-
+  // month (there is no per-row WoW for a month), a single week uses WoW.
+  const isMonth = !!STATE.currentMonth;
+  const cmp = isMonth ? 'vs last month' : 'vs last week';
+  const highSubEl = document.getElementById('highPerfSub');
+  const lowSubEl  = document.getElementById('lowPerfSub');
+  if (highSubEl) highSubEl.textContent = 'Biggest revenue gains ' + cmp;
+  if (lowSubEl)  lowSubEl.textContent  = 'Biggest revenue drops ' + cmp;
+
+  const movers = getViewMovers(data);
   winnersEl.innerHTML = movers.winners.length
     ? movers.winners.map((m, i) => moverRow(m, i + 1, true)).join('')
-    : '<div class="movers-empty">No WoW gains this week</div>';
+    : `<div class="movers-empty">No revenue gains ${cmp}</div>`;
   losersEl.innerHTML = movers.losers.length
     ? movers.losers.map((m, i) => moverRow(m, i + 1, false)).join('')
-    : '<div class="movers-empty">No WoW drops this week</div>';
+    : `<div class="movers-empty">No revenue drops ${cmp}</div>`;
 
   // Brand × Platform pivot
   const pivot = buildPivot(weekly);
@@ -6494,6 +6503,50 @@ function computeMovers(weekly) {
   const winners = withWow.filter(r => r.wow > 0).sort((a, b) => b.wow - a.wow).slice(0, 5);
   const losers  = withWow.filter(r => r.wow < 0).sort((a, b) => a.wow - b.wow).slice(0, 5);
   return { winners, losers };
+}
+
+// Month view has no per-row WoW, so compute month-over-month revenue change per
+// brand×platform: this month's pro-rated revenue vs the previous calendar month.
+// Same return shape as computeMovers (`wow` here is the MoM %).
+function computeMonthMovers(monthKey) {
+  const all = STATE.data?.allRows || [];
+  if (!all.length || !monthKey) return { winners: [], losers: [] };
+  const months  = buildMonthTotals().map(m => m.month);
+  const prevKey = months.indexOf(monthKey) > 0 ? months[months.indexOf(monthKey) - 1] : null;
+  const brandF  = STATE.activeBrand;
+
+  const mapOf = mk => {
+    const m = {};
+    if (!mk) return m;
+    aggregateRowsByCampaign(proratedRowsForMonth(all, mk))
+      .filter(r => !brandF || r.brand === brandF)
+      .forEach(r => { m[(r.brand || '') + '|' + (r.platform || '')] = r; });
+    return m;
+  };
+  const cur = mapOf(monthKey), prev = mapOf(prevKey);
+
+  const rows = Object.keys(cur).map(k => {
+    const c = cur[k], p = prev[k];
+    const curRev  = num(c.revenue) || 0;
+    const prevRev = p ? (num(p.revenue) || 0) : null;
+    const spend   = num(c.spend) || 0;
+    const wow = (prevRev && prevRev > 0) ? Math.round(((curRev - prevRev) / prevRev) * 1000) / 10 : null;
+    return { brand: c.brand, platform: c.platform, revenue: curRev, spend,
+             roas: spend ? curRev / spend : null, wow };
+  }).filter(r => r.wow !== null);
+
+  return {
+    winners: rows.filter(r => r.wow > 0).sort((a, b) => b.wow - a.wow).slice(0, 5),
+    losers:  rows.filter(r => r.wow < 0).sort((a, b) => a.wow - b.wow).slice(0, 5)
+  };
+}
+
+// Movers for whatever period is selected: full month → month-over-month;
+// single week → the feed's per-row WoW% (same value shown in the Analytics tab).
+function getViewMovers(data) {
+  return STATE.currentMonth
+    ? computeMonthMovers(STATE.currentMonth)
+    : computeMovers((data && data.weeklyDetail) || []);
 }
 
 function pivotCellIsEmpty(c) {
@@ -6643,21 +6696,22 @@ function generateWowSummary(data) {
 
   const fmtPct = v => v === null ? null
     : `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(1)}%</span>`;
+  const per = STATE.currentMonth ? 'MoM' : 'WoW';   // month view compares month-over-month
 
-  const movers = computeMovers(weekly);
+  const movers = getViewMovers(data);
   const topWin = movers.winners[0];
   const topLos = movers.losers[0];
 
   const lines = [];
   lines.push(`<span class="em">${meta.period_label || 'This week'}</span> — total revenue <span class="em">${fmtUSD(meta.mtd_revenue || 0)}</span>` +
-    (revWow !== null ? ` (${fmtPct(revWow)} WoW)` : '') + '.');
+    (revWow !== null ? ` (${fmtPct(revWow)} ${per})` : '') + '.');
   lines.push(`Spend <span class="em">${fmtUSD(meta.mtd_spend || 0)}</span>` +
-    (spdWow !== null ? ` (${fmtPct(spdWow)} WoW)` : '') +
+    (spdWow !== null ? ` (${fmtPct(spdWow)} ${per})` : '') +
     `, blended ROAS <span class="em">${(meta.blended_roas || 0).toFixed(2)}x</span>` +
-    (roasWow !== null ? ` (${fmtPct(roasWow)} WoW)` : '') + '.');
+    (roasWow !== null ? ` (${fmtPct(roasWow)} ${per})` : '') + '.');
 
-  if (topWin) lines.push(`Biggest gain: <span class="em">${topWin.brand} · ${topWin.platform}</span> at ${fmtPct(topWin.wow)} WoW.`);
-  if (topLos) lines.push(`Biggest drop: <span class="em">${topLos.brand} · ${topLos.platform}</span> at ${fmtPct(topLos.wow)} WoW.`);
+  if (topWin) lines.push(`Biggest gain: <span class="em">${topWin.brand} · ${topWin.platform}</span> at ${fmtPct(topWin.wow)} ${per}.`);
+  if (topLos) lines.push(`Biggest drop: <span class="em">${topLos.brand} · ${topLos.platform}</span> at ${fmtPct(topLos.wow)} ${per}.`);
 
   const profitable = (meta.platforms_profitable || 0);
   const breakeven  = (meta.platforms_breakeven  || 0);
@@ -6697,18 +6751,19 @@ function copyReportToClipboard() {
 function buildReportSheetHtml(data) {
   const meta = data.meta || {};
   const weekly = data.weeklyDetail || [];
-  const movers = computeMovers(weekly);
+  const movers = getViewMovers(data);
   const pivot = buildPivot(weekly);
   const generatedAt = new Date().toLocaleString('en-US', { dateStyle:'long', timeStyle:'short' });
+  const cmp = STATE.currentMonth ? 'vs last month' : 'vs last week';
 
   const summary = generateWowSummary(data);
 
   const winnersHtml = movers.winners.length
     ? movers.winners.map((m, i) => sheetMoverRow(m, i + 1, true)).join('')
-    : '<div class="sheet-mover-row" style="color:#64748b">No WoW gains this week.</div>';
+    : `<div class="sheet-mover-row" style="color:#64748b">No revenue gains ${cmp}.</div>`;
   const losersHtml = movers.losers.length
     ? movers.losers.map((m, i) => sheetMoverRow(m, i + 1, false)).join('')
-    : '<div class="sheet-mover-row" style="color:#64748b">No WoW drops this week.</div>';
+    : `<div class="sheet-mover-row" style="color:#64748b">No revenue drops ${cmp}.</div>`;
 
   return `
     <h1>Brand Performance Report</h1>
