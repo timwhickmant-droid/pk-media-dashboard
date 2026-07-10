@@ -4060,9 +4060,7 @@ html.theme-light .sidebar-brand-icon {
       <div class="camp-sync-badge" id="campSyncBadge">🟢 Live data</div>
       <div class="camp-compare-toggle">
         <span style="font-size:11px;color:var(--text-secondary);font-weight:600">Compare:</span>
-        <button class="camp-cmp-btn active" data-cmp="wow" onclick="campSetCompare('wow',this)">WoW</button>
-        <button class="camp-cmp-btn" data-cmp="mom" onclick="campSetCompare('mom',this)">MoM</button>
-        <button class="camp-cmp-btn" data-cmp="dod" onclick="campSetCompare('dod',this)">DoD</button>
+        <button class="camp-cmp-btn active" data-cmp="mom" onclick="campSetCompare('mom',this)">MoM</button>
       </div>
     </div>
 
@@ -7487,9 +7485,25 @@ let _campStatusChart = null;
 let _campCompare = 'wow';
 let _campExpanded = new Set();
 
-// Effective comparison period: a full-month view always compares month-over-month
-// (WoW/DoD are meaningless against a monthly total), otherwise honor the toggle.
-function campEffCompare() { return STATE.currentMonth ? 'mom' : _campCompare; }
+// The Campaigns tab always shows full-month data, so comparisons are always
+// month-over-month regardless of the WoW/DoD toggle or the selected week.
+function campEffCompare() { return 'mom'; }
+
+// Resolve which month the Campaigns tab should display. Uses the selected month
+// if any; otherwise the month of the selected week; otherwise the latest month
+// in the feed.
+function campTargetMonth() {
+  if (STATE.currentMonth) return STATE.currentMonth;
+  const trend = STATE.data?.revenueTrend || [];
+  const wf = STATE.currentWeek
+    ? (trend.find(t => t.week_label === STATE.currentWeek)?.week_full || '')
+    : (trend.length ? trend[trend.length - 1].week_full : '');
+  const k = monthKeyFromWeekFull(wf);
+  const key = k.month ? (k.month + (k.year ? ' ' + k.year : '')).trim() : '';
+  if (key) return key;
+  const months = buildMonthTotals();
+  return months.length ? months[months.length - 1].month : null;
+}
 
 /* ── Health Score ── */
 function campCalcHealth(r) {
@@ -7671,7 +7685,7 @@ function campRenderAI(rows) {
   if (noConv.length) insights.push(`<strong>${noConv.length} campaign${noConv.length>1?'s':''}</strong> spending with zero conversions — check creative or targeting`);
   const totalSpend = rows.reduce((s,r)=>s+r.spend,0);
   const totalRev   = rows.reduce((s,r)=>s+r.revenue,0);
-  if (totalSpend > 0) insights.push(`Blended ROAS of <strong>${(totalRev/totalSpend).toFixed(2)}x</strong> across ${rows.length} campaigns this week`);
+  if (totalSpend > 0) insights.push(`Blended ROAS of <strong>${(totalRev/totalSpend).toFixed(2)}x</strong> across ${rows.length} campaigns this month`);
   if (!insights.length) { card.style.display='none'; return; }
   card.style.display = '';
   body.innerHTML = insights.map(i => `<div class="camp-ai-insight">${i}</div>`).join('');
@@ -7786,14 +7800,15 @@ function buildCampaignRows(data) {
 
   // Use allRows (multi-week) if available, else weeklyDetail
   let rows = allRows.length ? allRows : weekly;
-  // Filter to the selected week or month (same logic as getViewRows)
-  if (allRows.length && STATE.currentMonth) {
-    // Full month: pro-rate boundary weeks by day-share, then collapse per campaign.
-    rows = aggregateRowsByCampaign(proratedRowsForMonth(rows, STATE.currentMonth));
-  } else if (allRows.length && STATE.currentWeek) {
-    rows = rows.filter(r => r.week_label === STATE.currentWeek);
+  // The Campaigns tab always shows full-month data — never per-week. Resolve the
+  // month to display (from the selected month, or the selected week's month, or
+  // the latest month), pro-rate boundary weeks by day-share, then collapse per
+  // campaign.
+  const monthKey = campTargetMonth();
+  if (allRows.length && monthKey) {
+    rows = aggregateRowsByCampaign(proratedRowsForMonth(rows, monthKey));
   }
-  // If no allRows, weeklyDetail is already the current week — no further filter needed
+  // If no allRows, weeklyDetail is the only source — shown as-is.
 
   return rows.map((r, i) => {
     const spend   = Number(r.spend)   || 0;
@@ -7935,7 +7950,7 @@ function campRenderTable() {
     // Expanded row
     if (isExpanded) {
       const exSpend = r.spend, exRev = r.revenue, exROAS = r.roas, exCPC = r.cpc, exClicks = r.clicks;
-      const perLabel = STATE.currentMonth ? 'Monthly' : 'Weekly';
+      const perLabel = 'Monthly';
       rows.push(`<tr class="camp-row-expand"><td colspan="14"><div class="camp-expand-inner">
         <div class="camp-expand-box"><div class="camp-expand-box-label">${perLabel} Spend</div><div class="camp-expand-box-val">$${exSpend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">${perLabel} Revenue</div><div class="camp-expand-box-val" style="color:#4ade80">$${exRev.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
@@ -8056,10 +8071,7 @@ function campRenderKpis(rows, data) {
     dRoas  = cT && pT ? dw(cT.roas,    pT.roas)    : null;
   } else if (effCompare === 'mom') {
     const months = buildMonthTotals();
-    const curKey = STATE.currentMonth || (() => {
-      const wf = trendArr.find(t => t.week_label === STATE.currentWeek)?.week_full || '';
-      const k  = monthKeyFromWeekFull(wf); return k.month ? (k.month + (k.year ? ' ' + k.year : '')).trim() : '';
-    })();
+    const curKey = campTargetMonth();
     const mi  = months.findIndex(m => m.month === curKey);
     const cM  = mi >= 0 ? months[mi]     : null;
     const pM  = mi >  0 ? months[mi - 1] : null;
