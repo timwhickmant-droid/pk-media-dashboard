@@ -7487,6 +7487,10 @@ let _campStatusChart = null;
 let _campCompare = 'wow';
 let _campExpanded = new Set();
 
+// Effective comparison period: a full-month view always compares month-over-month
+// (WoW/DoD are meaningless against a monthly total), otherwise honor the toggle.
+function campEffCompare() { return STATE.currentMonth ? 'mom' : _campCompare; }
+
 /* ── Health Score ── */
 function campCalcHealth(r) {
   let score = 100;
@@ -7798,7 +7802,7 @@ function buildCampaignRows(data) {
     const roas    = spend > 0 && revenue > 0 ? revenue / spend : null;
     const cpc     = clicks > 0 ? spend / clicks : null;
     const ctr     = clicks > 0 ? (0.8 + (i % 5) * 0.3).toFixed(2) : null;
-    const wow     = computeRowDelta(r, allRows, _campCompare);
+    const wow     = computeRowDelta(r, allRows, campEffCompare());
     const status  = spend <= 0 ? 'Draft'
                   : (revenue === 0 && spend > 0) ? 'Paused'
                   : 'Active';
@@ -7897,7 +7901,8 @@ function campRenderTable() {
     const objChip    = `<span class="camp-obj-chip">${r.objective}</span>`;
     const sparkId    = 'csp_' + r.name.replace(/\W/g,'_');
     const tagsHtml   = tags.map(t => `<span class="camp-perf-tag ${t.cls}">${t.label}</span>`).join('');
-    const cmpLabel   = _campCompare === 'mom' ? 'vs last month' : _campCompare === 'dod' ? 'vs yesterday' : 'vs last week';
+    const _effCmp    = campEffCompare();
+    const cmpLabel   = _effCmp === 'mom' ? 'vs last month' : _effCmp === 'dod' ? 'vs yesterday' : 'vs last week';
     const wowStr     = r.wow != null ? `<span style="font-size:10px;color:${r.wow>=0?'#4ade80':'#f87171'}">${r.wow>=0?'▲':'▼'}${Math.abs(r.wow).toFixed(0)}% ${cmpLabel}</span>` : '';
 
     rows.push(`<tr class="camp-row-main" onclick="campToggleExpand('${esc}')">
@@ -8016,11 +8021,15 @@ function campRenderKpis(rows, data) {
   const avgCpc       = totalClicks > 0 ? totalSpend / totalClicks : 0;
 
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  const cmpSuffix = _campCompare === 'mom' ? 'vs last month' : _campCompare === 'dod' ? 'vs yesterday' : 'vs last week';
+  const effCompare = campEffCompare();
+  // Keep the WoW/MoM/DoD toggle highlight in sync with the effective period
+  // (a month view is forced to MoM).
+  document.querySelectorAll('.camp-cmp-btn').forEach(b => b.classList.toggle('active', b.dataset.cmp === effCompare));
+  const cmpSuffix = effCompare === 'mom' ? 'vs last month' : effCompare === 'dod' ? 'vs yesterday' : 'vs last week';
   const setDelta = (id, pct) => {
     const el = document.getElementById(id);
     if (!el) return;
-    if (pct == null) { el.textContent = _campCompare === 'dod' ? 'N/A (no daily data)' : '—'; el.className = 'camp-kpi-wow'; return; }
+    if (pct == null) { el.textContent = effCompare === 'dod' ? 'N/A (no daily data)' : '—'; el.className = 'camp-kpi-wow'; return; }
     el.textContent = (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(1) + '% ' + cmpSuffix;
     el.className = 'camp-kpi-wow ' + (pct >= 0 ? 'up' : 'dn');
   };
@@ -8036,7 +8045,7 @@ function campRenderKpis(rows, data) {
   let dRev = null, dSpend = null, dRoas = null;
   const trendArr = data.revenueTrend || [];
 
-  if (_campCompare === 'wow') {
+  if (effCompare === 'wow') {
     const wkIdx = STATE.currentWeek ? trendArr.findIndex(t => t.week_label === STATE.currentWeek)
                                     : trendArr.length - 1;
     const cT = wkIdx >= 0 ? trendArr[wkIdx]     : null;
@@ -8045,7 +8054,7 @@ function campRenderKpis(rows, data) {
     dRev   = cT && pT ? dw(cT.revenue, pT.revenue) : null;
     dSpend = cT && pT ? dw(cT.spend,   pT.spend)   : null;
     dRoas  = cT && pT ? dw(cT.roas,    pT.roas)    : null;
-  } else if (_campCompare === 'mom') {
+  } else if (effCompare === 'mom') {
     const months = buildMonthTotals();
     const curKey = STATE.currentMonth || (() => {
       const wf = trendArr.find(t => t.week_label === STATE.currentWeek)?.week_full || '';
