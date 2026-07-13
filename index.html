@@ -8634,8 +8634,8 @@ function commDownloadPDF() {
   // won't fit in the space left on the current one. (Green Roads fills page 1;
   // Hemp Bombs + Mystic Labs share page 2.)
   const pageH = doc.internal.pageSize.getHeight();
-  const ROW_H = 6; // ≈ row height in mm at 7.5pt + padding
-  let y = 52; // padding below the KPI summary
+  const ROW_H = 7.6; // ≈ row height in mm at 9pt + padding
+  let y = 58; // padding below the KPI summary
   order.forEach((brand, bi) => {
     const list = byBrand[brand].slice().sort((a, b) => (b.commission || 0) - (a.commission || 0));
     const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].map(n => n.toUpperCase()).join(', ');
@@ -8643,19 +8643,19 @@ function commDownloadPDF() {
     const tR = tS > 0 ? ((tC / tS) * 100).toFixed(1) + '%' : '—';
 
     // Estimated height: heading + header/footer + one line per publisher
-    const needed = 10 + (list.length + 2) * ROW_H;
-    if (bi > 0 && y + needed > pageH - 15) { doc.addPage(); y = 20; }
+    const needed = 14 + (list.length + 2) * ROW_H;
+    if (bi > 0 && y + needed > pageH - 15) { doc.addPage(); y = 22; }
 
     // Brand heading, e.g. "GREEN ROADS · AWIN". Measure the brand width while
     // the bold font is still active so the network label never overlaps it.
     const brandLabel = DISPLAY_BRAND[brand] || String(brand).toUpperCase();
-    doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...GREEN).text(brandLabel, M, y);
+    doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(...GREEN).text(brandLabel, M, y);
     const brandW = doc.getTextWidth(brandLabel);
-    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(136)
-       .text('· ' + nets, M + brandW + 2, y);
+    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(136)
+       .text('· ' + nets, M + brandW + 2.5, y);
 
     doc.autoTable({
-      startY: y + 2,
+      startY: y + 4,
       margin: { left: M, right: M },
       head: [['Publisher', 'Publisher / Partner ID', 'Transactions', 'Sales', 'Commission', 'Rate']],
       body: list.map(r => [
@@ -8665,11 +8665,11 @@ function commDownloadPDF() {
       ]),
       foot: [['TOTAL', '', intf(tT), money(tS), money(tC), tR]],
       theme: 'grid',
-      styles:     { font: 'helvetica', fontSize: 7.5, cellPadding: 1.6, textColor: 17, lineColor: 230, lineWidth: 0.1 },
-      headStyles: { fillColor: GREEN, textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
-      footStyles: { fillColor: LIGHT, textColor: 17, fontStyle: 'bold' },
+      styles:     { font: 'helvetica', fontSize: 9, cellPadding: 2.3, textColor: 17, lineColor: 230, lineWidth: 0.1 },
+      headStyles: { fillColor: GREEN, textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      footStyles: { fillColor: LIGHT, textColor: 17, fontStyle: 'bold', fontSize: 9 },
       columnStyles: {
-        0: { cellWidth: 52 }, 1: { cellWidth: 38, textColor: 100 },
+        0: { cellWidth: 58 }, 1: { cellWidth: 40, textColor: 100 },
         2: { halign: 'right' }, 3: { halign: 'right' },
         4: { halign: 'right', fontStyle: 'bold' }, 5: { halign: 'right' }
       },
