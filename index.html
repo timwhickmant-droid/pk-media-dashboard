@@ -8430,10 +8430,10 @@ function commRenderTable() {
           <td class="camp-name-cell">${r.username || '—'}</td>
           <td style="color:var(--text-secondary)">${r.publisherId || '—'}</td>
           <td>${commNetChip(r.platform)}</td>
-          <td>${fmtInt(r.transactions)}</td>
-          <td>${fmtUSD(r.sales)}</td>
-          <td style="color:#4ade80;font-weight:700">${fmtUSD(r.commission)}</td>
-          <td>${rt}</td>
+          <td style="text-align:right">${fmtInt(r.transactions)}</td>
+          <td style="text-align:right">${fmtUSD(r.sales)}</td>
+          <td style="text-align:right;color:#4ade80;font-weight:700">${fmtUSD(r.commission)}</td>
+          <td style="text-align:right">${rt}</td>
         </tr>`;
       }).join('');
 
@@ -8448,18 +8448,18 @@ function commRenderTable() {
               <th class="camp-sortable" onclick="commSort('username')">Publisher ${arrow('username')}</th>
               <th>Publisher / Partner ID</th>
               <th>Network</th>
-              <th class="camp-sortable" onclick="commSort('transactions')">Transactions ${arrow('transactions')}</th>
-              <th class="camp-sortable" onclick="commSort('sales')">Sales ${arrow('sales')}</th>
-              <th class="camp-sortable" onclick="commSort('commission')">Commission ${arrow('commission')}</th>
-              <th>Rate</th>
+              <th class="camp-sortable" style="text-align:right" onclick="commSort('transactions')">Transactions ${arrow('transactions')}</th>
+              <th class="camp-sortable" style="text-align:right" onclick="commSort('sales')">Sales ${arrow('sales')}</th>
+              <th class="camp-sortable" style="text-align:right" onclick="commSort('commission')">Commission ${arrow('commission')}</th>
+              <th style="text-align:right">Rate</th>
             </tr></thead>
             <tbody>${body}</tbody>
             <tfoot><tr>
               <td>TOTAL</td><td></td><td></td>
-              <td>${fmtInt(tTrans)}</td>
-              <td>${fmtUSD(tSales)}</td>
-              <td style="color:#4ade80">${fmtUSD(tComm)}</td>
-              <td>${tRate}</td>
+              <td style="text-align:right">${fmtInt(tTrans)}</td>
+              <td style="text-align:right">${fmtUSD(tSales)}</td>
+              <td style="text-align:right;color:#4ade80">${fmtUSD(tComm)}</td>
+              <td style="text-align:right">${tRate}</td>
             </tr></tfoot>
           </table>
         </div>
@@ -8554,7 +8554,7 @@ function commBuildReportHtml(rows, month) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;color:#111">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #0f3d2e;padding-bottom:8px">
       <div>
-        <div style="font-size:18px;font-weight:800">Affiliate Commission Report</div>
+        <div style="font-size:18px;font-weight:800;color:#0f3d2e">Affiliate Commission Report</div>
         <div style="font-size:12px;color:#555">${month || ''}</div>
       </div>
       <div style="text-align:right;font-size:9px;color:#888">Generated ${new Date().toLocaleString('en-US')}<br>PK Media · Brand Performance</div>
@@ -8580,10 +8580,14 @@ function commDownloadPDF() {
   if (!rows.length) { if (typeof showToast === 'function') showToast('No commission data to export'); return; }
   const month = document.getElementById('commMonthSelect')?.value || '';
 
+  // Offscreen host at a fixed print width. Keep it in normal flow (top:0) so
+  // html2canvas measures a correct height; capture at scroll 0,0 so the page's
+  // current scroll position can't push content down and leave blank pages.
+  const PDF_W = 760;
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1';
   const host = document.createElement('div');
-  host.style.cssText = 'width:760px;background:#fff;padding:18px';
+  host.style.cssText = `width:${PDF_W}px;background:#fff;color:#111;padding:18px;box-sizing:border-box`;
   host.innerHTML = commBuildReportHtml(rows, month);
   wrap.appendChild(host);
   document.body.appendChild(wrap);
@@ -8593,7 +8597,7 @@ function commDownloadPDF() {
     margin:      [8, 8, 10, 8],
     filename:    `commission-report-${(month || 'export').replace(/\s+/g, '-').toLowerCase()}.pdf`,
     image:       { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 800 },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', width: PDF_W, windowWidth: PDF_W + 40, scrollX: 0, scrollY: 0 },
     jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak:   { mode: ['css', 'legacy'] }
   };
