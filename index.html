@@ -8512,9 +8512,10 @@ function commBuildReportHtml(rows, month) {
   const gTrans = rows.reduce((s, r) => s + (r.transactions || 0), 0);
   const gRate = gSales > 0 ? ((gComm / gSales) * 100).toFixed(1) + '%' : '—';
 
+  const DISPLAY_BRAND = { 'Greenroads': 'GREEN ROADS', 'HempBombs': 'HEMP BOMBS', 'Mystic Labs': 'MYSTIC LABS', 'Cannabis Life': 'CANNABIS LIFE' };
   const blocks = order.map(brand => {
     const list = byBrand[brand].slice().sort((a, b) => (b.commission || 0) - (a.commission || 0));
-    const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].join(', ');
+    const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].map(n => n.toUpperCase()).join(', ');
     const tC = sumComm(list), tS = list.reduce((s, r) => s + (r.sales || 0), 0), tT = list.reduce((s, r) => s + (r.transactions || 0), 0);
     const tR = tS > 0 ? ((tC / tS) * 100).toFixed(1) + '%' : '—';
     const body = list.map(r => {
@@ -8529,7 +8530,7 @@ function commBuildReportHtml(rows, month) {
       </tr>`;
     }).join('');
     return `<div style="page-break-inside:avoid;margin-top:14px">
-      <h3 style="margin:0 0 5px;font-size:13px;color:#0f3d2e">${brand} <span style="font-weight:400;color:#888">· ${nets}</span></h3>
+      <h3 style="margin:0 0 5px;font-size:13px;color:#0f3d2e">${DISPLAY_BRAND[brand] || String(brand).toUpperCase()} <span style="font-weight:400;color:#888">· ${nets}</span></h3>
       <table style="width:100%;border-collapse:collapse;font-size:10px">
         <thead><tr style="background:#0f3d2e;color:#fff">
           <th style="text-align:left;padding:5px 7px">Publisher</th>
@@ -8626,19 +8627,25 @@ function commDownloadPDF() {
     doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(17).text(val, x, 39);
   });
 
+  // Display names matching the source sheet (normalized keys → sheet labels)
+  const DISPLAY_BRAND = { 'Greenroads': 'GREEN ROADS', 'HempBombs': 'HEMP BOMBS', 'Mystic Labs': 'MYSTIC LABS', 'Cannabis Life': 'CANNABIS LIFE' };
+
   // One table per brand
   let y = 46;
   order.forEach(brand => {
     const list = byBrand[brand].slice().sort((a, b) => (b.commission || 0) - (a.commission || 0));
-    const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].join(', ');
+    const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].map(n => n.toUpperCase()).join(', ');
     const tC = sumComm(list), tS = list.reduce((s, r) => s + (r.sales || 0), 0), tT = list.reduce((s, r) => s + (r.transactions || 0), 0);
     const tR = tS > 0 ? ((tC / tS) * 100).toFixed(1) + '%' : '—';
 
-    // Brand heading (add a page if too close to the bottom)
+    // Brand heading, e.g. "GREEN ROADS · AWIN". Measure the brand width while
+    // the bold font is still active so the network label never overlaps it.
     if (y > doc.internal.pageSize.getHeight() - 40) { doc.addPage(); y = 16; }
-    doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...GREEN).text(brand, M, y);
+    const brandLabel = DISPLAY_BRAND[brand] || String(brand).toUpperCase();
+    doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...GREEN).text(brandLabel, M, y);
+    const brandW = doc.getTextWidth(brandLabel);
     doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(136)
-       .text('· ' + nets, M + doc.getTextWidth(brand) + 2, y);
+       .text('· ' + nets, M + brandW + 2, y);
 
     doc.autoTable({
       startY: y + 2,
@@ -8658,6 +8665,13 @@ function commDownloadPDF() {
         0: { cellWidth: 52 }, 1: { cellWidth: 38, textColor: 100 },
         2: { halign: 'right' }, 3: { halign: 'right' },
         4: { halign: 'right', fontStyle: 'bold' }, 5: { halign: 'right' }
+      },
+      // columnStyles don't reach head/foot cells — right-align the numeric
+      // columns there too so the TOTAL row lines up with the body values.
+      didParseCell: h => {
+        if ((h.section === 'foot' || h.section === 'head') && h.column.index >= 2) {
+          h.cell.styles.halign = 'right';
+        }
       }
     });
     y = doc.lastAutoTable.finalY + 9;
