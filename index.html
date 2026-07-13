@@ -8288,7 +8288,7 @@ function campRenderBottomCards(rows) {
 /* ═══════════════════════════════════════
    Commission (Affiliate) tab
 ═══════════════════════════════════════ */
-let _commState = { monthRows: [], sortCol: 'commission', sortDir: -1 };
+let _commState = { monthRows: [], sorts: {} }; // sorts: per-brand { col, dir }
 
 const COMM_MONTH_IDX = {
   january:0, february:1, march:2, april:3, may:4, june:5,
@@ -8397,13 +8397,14 @@ function commRenderTable() {
   const searched = filtered.filter(r =>
     !q || (r.username || '').toLowerCase().includes(q) || (r.publisherId || '').toLowerCase().includes(q));
 
-  const col = _commState.sortCol, dir = _commState.sortDir;
-  const sortRows = arr => arr.slice().sort((a, b) => {
-    const av = a[col] ?? -Infinity, bv = b[col] ?? -Infinity;
-    return typeof av === 'string' ? String(av).localeCompare(String(bv)) * dir : (av - bv) * dir;
+  // Per-brand sort state so clicking one table's header doesn't re-sort the others
+  const sortStateOf = brand => _commState.sorts[brand] || { col: 'commission', dir: -1 };
+  const sortRows = (arr, st) => arr.slice().sort((a, b) => {
+    const av = a[st.col] ?? -Infinity, bv = b[st.col] ?? -Infinity;
+    return typeof av === 'string' ? String(av).localeCompare(String(bv)) * st.dir : (av - bv) * st.dir;
   });
-  const arrow = c => _commState.sortCol === c
-    ? `<span class="camp-sort-arrow active">${_commState.sortDir === 1 ? '▲' : '▼'}</span>`
+  const arrow = (st, c) => st.col === c
+    ? `<span class="camp-sort-arrow active">${st.dir === 1 ? '▲' : '▼'}</span>`
     : '<span class="camp-sort-arrow">↕</span>';
 
   // Group by brand, ordered by total commission (desc)
@@ -8415,7 +8416,9 @@ function commRenderTable() {
   const container = document.getElementById('commTables');
   if (container) {
     container.innerHTML = brandOrder.map(brand => {
-      const rows   = sortRows(byBrand[brand]);
+      const st     = sortStateOf(brand);
+      const bEsc   = brand.replace(/'/g, "\\'");
+      const rows   = sortRows(byBrand[brand], st);
       const dot    = BRAND_DOT[brand] || '#94a3b8';
       const nets   = [...new Set(rows.map(r => r.platform).filter(Boolean))];
       const tComm  = sumComm(rows);
@@ -8449,12 +8452,12 @@ function commRenderTable() {
               <col style="width:12%"><col style="width:13%"><col style="width:15%"><col style="width:10%">
             </colgroup>
             <thead><tr>
-              <th class="camp-sortable" onclick="commSort('username')">Publisher ${arrow('username')}</th>
+              <th class="camp-sortable" onclick="commSort('${bEsc}','username')">Publisher ${arrow(st,'username')}</th>
               <th>Publisher / Partner ID</th>
               <th>Network</th>
-              <th class="camp-sortable" style="text-align:right" onclick="commSort('transactions')">Transactions ${arrow('transactions')}</th>
-              <th class="camp-sortable" style="text-align:right" onclick="commSort('sales')">Sales ${arrow('sales')}</th>
-              <th class="camp-sortable" style="text-align:right" onclick="commSort('commission')">Commission ${arrow('commission')}</th>
+              <th class="camp-sortable" style="text-align:right" onclick="commSort('${bEsc}','transactions')">Transactions ${arrow(st,'transactions')}</th>
+              <th class="camp-sortable" style="text-align:right" onclick="commSort('${bEsc}','sales')">Sales ${arrow(st,'sales')}</th>
+              <th class="camp-sortable" style="text-align:right" onclick="commSort('${bEsc}','commission')">Commission ${arrow(st,'commission')}</th>
               <th style="text-align:right">Rate</th>
             </tr></thead>
             <tbody>${body}</tbody>
@@ -8475,9 +8478,11 @@ function commRenderTable() {
   if (info) info.textContent = `${searched.length} of ${filtered.length} publishers`;
 }
 
-function commSort(col) {
-  if (_commState.sortCol === col) _commState.sortDir *= -1;
-  else { _commState.sortCol = col; _commState.sortDir = -1; }
+function commSort(brand, col) {
+  const st = _commState.sorts[brand] || { col: 'commission', dir: -1 };
+  if (st.col === col) st.dir *= -1;
+  else { st.col = col; st.dir = -1; }
+  _commState.sorts[brand] = st;
   commRenderTable();
 }
 
