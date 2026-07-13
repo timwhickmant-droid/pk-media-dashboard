@@ -370,7 +370,7 @@ function readCommission() {
     var idx = {
       date:     find(headers, /date/i),
       brand:    find(headers, /^brand$/i),
-      pubId:    find(headers, /publisher\s*id|^publisher$/i),
+      pubId:    find(headers, /publisher\s*id|media\s*partner\s*id|partner\s*id|^publisher$/i),
       username: find(headers, /user\s*name|publisher\s*name/i),
       trans:    find(headers, /transaction/i),
       sales:    find(headers, /^sales$/i),
