@@ -4228,10 +4228,6 @@ html.theme-light .sidebar-brand-icon {
         <select class="camp-select" id="commMonthSelect" onchange="renderCommission(STATE.data)" title="Month"></select>
         <select class="camp-select" id="commBrand" onchange="commRenderTable()" title="Brand"><option value="">All Brands</option></select>
         <select class="camp-select" id="commPlatform" onchange="commRenderTable()" title="Network"><option value="">All Networks</option></select>
-        <button class="camp-icon-btn" title="Export CSV" onclick="commExportCSV()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          CSV
-        </button>
         <button class="camp-icon-btn" title="Download PDF report" onclick="commDownloadPDF()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
           PDF
@@ -8483,24 +8479,6 @@ function commSort(col) {
   if (_commState.sortCol === col) _commState.sortDir *= -1;
   else { _commState.sortCol = col; _commState.sortDir = -1; }
   commRenderTable();
-}
-
-function commExportCSV() {
-  const q = (document.getElementById('commSearch')?.value || '').trim().toLowerCase();
-  const rows = commFilteredRows().filter(r =>
-    !q || (r.username || '').toLowerCase().includes(q) || (r.publisherId || '').toLowerCase().includes(q));
-  const month = document.getElementById('commMonthSelect')?.value || '';
-  const head = ['Month','Network','Brand','Publisher ID','Publisher','Transactions','Sales','Commission'];
-  const esc  = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-  const lines = [head.map(esc).join(',')].concat(rows.map(r =>
-    [month, r.platform, r.brand, r.publisherId, r.username, r.transactions, r.sales, r.commission].map(esc).join(',')));
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `commission_${(month || 'export').replace(/\s+/g, '_')}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  if (typeof showToast === 'function') showToast('⬇ Exported ' + rows.length + ' publisher rows');
 }
 
 // Build a print-ready HTML commission report (one table per brand + totals).
