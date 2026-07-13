@@ -62,8 +62,8 @@
   --amber:       var(--warning);
   --red:         var(--danger);
   --cyan:        #06b6d4;
-  --sidebar-w:        140px;
-  --sidebar-w-expand: 140px;
+  --sidebar-w:        156px;
+  --sidebar-w-expand: 156px;
 }
 /* ═══ LIGHT THEME ═══ */
 html.theme-light {
@@ -515,7 +515,7 @@ body {
   font-size:15px; background:rgba(255,255,255,0.05); flex-shrink:0;
 }
 .nav-item.active .nav-icon { background:rgba(59,130,246,0.18); }
-.nav-label { flex:1; font-size:14px; }
+.nav-label { flex:1; font-size:14px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .nav-num {
   font-size:10px; background:rgba(255,255,255,0.07); color:#7a8ba5;
   padding:3px 8px; border-radius:20px; font-weight:700; letter-spacing:0.5px;
@@ -2834,9 +2834,9 @@ html.theme-light .sidebar-brand-icon {
   display: none;
 }
 .nav-item {
-  margin: 6px 10px;
-  padding: 12px 11px;
-  gap: 11px;
+  margin: 6px 9px;
+  padding: 12px 10px;
+  gap: 9px;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 700;
