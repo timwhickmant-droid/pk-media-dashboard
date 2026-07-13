@@ -4226,7 +4226,11 @@ html.theme-light .sidebar-brand-icon {
         <select class="camp-select" id="commPlatform" onchange="commRenderTable()" title="Network"><option value="">All Networks</option></select>
         <button class="camp-icon-btn" title="Export CSV" onclick="commExportCSV()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export
+          CSV
+        </button>
+        <button class="camp-icon-btn" title="Download PDF report" onclick="commDownloadPDF()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
+          PDF
         </button>
       </div>
     </div>
@@ -8489,6 +8493,114 @@ function commExportCSV() {
   a.click();
   URL.revokeObjectURL(a.href);
   if (typeof showToast === 'function') showToast('⬇ Exported ' + rows.length + ' publisher rows');
+}
+
+// Build a print-ready HTML commission report (one table per brand + totals).
+function commBuildReportHtml(rows, month) {
+  const money = v => '$' + (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const intf  = v => Math.round(v || 0).toLocaleString('en-US');
+
+  const byBrand = {};
+  rows.forEach(r => { (byBrand[r.brand] = byBrand[r.brand] || []).push(r); });
+  const sumComm = a => a.reduce((s, r) => s + (r.commission || 0), 0);
+  const order = Object.keys(byBrand).sort((a, b) => sumComm(byBrand[b]) - sumComm(byBrand[a]));
+
+  const gComm = sumComm(rows);
+  const gSales = rows.reduce((s, r) => s + (r.sales || 0), 0);
+  const gTrans = rows.reduce((s, r) => s + (r.transactions || 0), 0);
+  const gRate = gSales > 0 ? ((gComm / gSales) * 100).toFixed(1) + '%' : '—';
+
+  const blocks = order.map(brand => {
+    const list = byBrand[brand].slice().sort((a, b) => (b.commission || 0) - (a.commission || 0));
+    const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].join(', ');
+    const tC = sumComm(list), tS = list.reduce((s, r) => s + (r.sales || 0), 0), tT = list.reduce((s, r) => s + (r.transactions || 0), 0);
+    const tR = tS > 0 ? ((tC / tS) * 100).toFixed(1) + '%' : '—';
+    const body = list.map(r => {
+      const rt = r.sales > 0 ? ((r.commission / r.sales) * 100).toFixed(1) + '%' : '—';
+      return `<tr>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee">${r.username || '—'}</td>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee;color:#666">${r.publisherId || '—'}</td>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right">${intf(r.transactions)}</td>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right">${money(r.sales)}</td>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${money(r.commission)}</td>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right">${rt}</td>
+      </tr>`;
+    }).join('');
+    return `<div style="page-break-inside:avoid;margin-top:14px">
+      <h3 style="margin:0 0 5px;font-size:13px;color:#0f3d2e">${brand} <span style="font-weight:400;color:#888">· ${nets}</span></h3>
+      <table style="width:100%;border-collapse:collapse;font-size:10px">
+        <thead><tr style="background:#0f3d2e;color:#fff">
+          <th style="text-align:left;padding:5px 7px">Publisher</th>
+          <th style="text-align:left;padding:5px 7px">Publisher / Partner ID</th>
+          <th style="text-align:right;padding:5px 7px">Transactions</th>
+          <th style="text-align:right;padding:5px 7px">Sales</th>
+          <th style="text-align:right;padding:5px 7px">Commission</th>
+          <th style="text-align:right;padding:5px 7px">Rate</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+        <tfoot><tr style="background:#d1fae5;font-weight:800">
+          <td style="padding:5px 7px">TOTAL</td><td></td>
+          <td style="padding:5px 7px;text-align:right">${intf(tT)}</td>
+          <td style="padding:5px 7px;text-align:right">${money(tS)}</td>
+          <td style="padding:5px 7px;text-align:right">${money(tC)}</td>
+          <td style="padding:5px 7px;text-align:right">${tR}</td>
+        </tr></tfoot>
+      </table>
+    </div>`;
+  }).join('');
+
+  const stat = (label, val) => `<div><div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:.04em">${label}</div><strong style="font-size:14px">${val}</strong></div>`;
+
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#111">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #0f3d2e;padding-bottom:8px">
+      <div>
+        <div style="font-size:18px;font-weight:800">Affiliate Commission Report</div>
+        <div style="font-size:12px;color:#555">${month || ''}</div>
+      </div>
+      <div style="text-align:right;font-size:9px;color:#888">Generated ${new Date().toLocaleString('en-US')}<br>PK Media · Brand Performance</div>
+    </div>
+    <div style="display:flex;gap:22px;margin:12px 0 2px">
+      ${stat('Total Commission', money(gComm))}
+      ${stat('Total Sales', money(gSales))}
+      ${stat('Transactions', intf(gTrans))}
+      ${stat('Commission Rate', gRate)}
+      ${stat('Publishers', intf(rows.length))}
+    </div>
+    ${blocks}
+    <div style="margin-top:16px;border-top:2px solid #0f3d2e;padding-top:8px;font-size:12px;font-weight:800;display:flex;justify-content:space-between">
+      <span>GRAND TOTAL · all brands</span>
+      <span>${intf(gTrans)} txns · ${money(gSales)} sales · ${money(gComm)} commission (${gRate})</span>
+    </div>
+  </div>`;
+}
+
+function commDownloadPDF() {
+  if (typeof html2pdf === 'undefined') { if (typeof showToast === 'function') showToast('PDF library not loaded — check your connection'); return; }
+  const rows = commFilteredRows();
+  if (!rows.length) { if (typeof showToast === 'function') showToast('No commission data to export'); return; }
+  const month = document.getElementById('commMonthSelect')?.value || '';
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1';
+  const host = document.createElement('div');
+  host.style.cssText = 'width:760px;background:#fff;padding:18px';
+  host.innerHTML = commBuildReportHtml(rows, month);
+  wrap.appendChild(host);
+  document.body.appendChild(wrap);
+
+  if (typeof showToast === 'function') showToast('Generating PDF…');
+  const opts = {
+    margin:      [8, 8, 10, 8],
+    filename:    `commission-report-${(month || 'export').replace(/\s+/g, '-').toLowerCase()}.pdf`,
+    image:       { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 800 },
+    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak:   { mode: ['css', 'legacy'] }
+  };
+  html2pdf().set(opts).from(host).save()
+    .then(() => { if (typeof showToast === 'function') showToast('PDF downloaded'); })
+    .catch(err => { console.error('Commission PDF failed:', err); if (typeof showToast === 'function') showToast('PDF generation failed — see console'); })
+    .finally(() => wrap.remove());
 }
 
 function renderCampaigns(data) {
