@@ -8580,31 +8580,32 @@ function commDownloadPDF() {
   if (!rows.length) { if (typeof showToast === 'function') showToast('No commission data to export'); return; }
   const month = document.getElementById('commMonthSelect')?.value || '';
 
-  // Offscreen host at a fixed print width. Keep it in normal flow (top:0) so
-  // html2canvas measures a correct height; capture at scroll 0,0 so the page's
-  // current scroll position can't push content down and leave blank pages.
-  const PDF_W = 760;
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1';
-  const host = document.createElement('div');
-  host.style.cssText = `width:${PDF_W}px;background:#fff;color:#111;padding:18px;box-sizing:border-box`;
-  host.innerHTML = commBuildReportHtml(rows, month);
-  wrap.appendChild(host);
-  document.body.appendChild(wrap);
+  // Use the browser's native print-to-PDF: it paginates tables correctly and
+  // keeps text crisp/selectable (unlike html2canvas rasterization, which clipped
+  // columns and left blank pages). The user picks "Save as PDF" as the target.
+  const win = window.open('', '_blank', 'width=920,height=1040');
+  if (!win) { if (typeof showToast === 'function') showToast('Allow pop-ups for this site to download the PDF'); return; }
 
-  if (typeof showToast === 'function') showToast('Generating PDF…');
-  const opts = {
-    margin:      [8, 8, 10, 8],
-    filename:    `commission-report-${(month || 'export').replace(/\s+/g, '-').toLowerCase()}.pdf`,
-    image:       { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', width: PDF_W, windowWidth: PDF_W + 40, scrollX: 0, scrollY: 0 },
-    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['css', 'legacy'] }
-  };
-  html2pdf().set(opts).from(host).save()
-    .then(() => { if (typeof showToast === 'function') showToast('PDF downloaded'); })
-    .catch(err => { console.error('Commission PDF failed:', err); if (typeof showToast === 'function') showToast('PDF generation failed — see console'); })
-    .finally(() => wrap.remove());
+  const doc = '<!doctype html><html><head><meta charset="utf-8">' +
+    '<title>Commission Report' + (month ? ' — ' + month : '') + '</title>' +
+    '<style>' +
+      '@page{size:A4 portrait;margin:12mm}' +
+      '*{-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      'html,body{margin:0;padding:0}' +
+      'body{font-family:Arial,Helvetica,sans-serif;color:#111}' +
+      'table{width:100%;border-collapse:collapse}' +
+      'thead{display:table-header-group}' +
+      'tr{page-break-inside:avoid}' +
+    '</style></head><body>' +
+    commBuildReportHtml(rows, month) +
+    '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},200)};' +
+    'window.onafterprint=function(){window.close();};</scr' + 'ipt>' +
+    '</body></html>';
+
+  win.document.open();
+  win.document.write(doc);
+  win.document.close();
+  if (typeof showToast === 'function') showToast('Opening print dialog — choose “Save as PDF”');
 }
 
 function renderCampaigns(data) {
