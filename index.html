@@ -1899,6 +1899,9 @@ html.theme-light .camp-date-option:hover { background:rgba(0,0,0,0.04); }
 /* Commission tab */
 #commTables tfoot td { font-weight:900; color:var(--text-primary); border-top:2px solid var(--border-strong); background:var(--card-elevated); padding:11px 14px; font-size:13px; }
 .comm-brand-block { margin-bottom:22px; }
+/* Fixed layout + shared colgroup keeps columns aligned across all brand tables */
+.comm-brand-table { table-layout:fixed; width:100%; }
+.comm-brand-table td, .comm-brand-table th { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .comm-brand-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
 .comm-brand-title { font-size:16px; font-weight:800; color:var(--text-primary); display:flex; align-items:center; gap:8px; }
 .comm-brand-title .comm-brand-dot { width:11px; height:11px; }
@@ -8446,6 +8449,10 @@ function commRenderTable() {
         </div>
         <div class="camp-table-wrap">
           <table class="camp-table comm-brand-table">
+            <colgroup>
+              <col style="width:25%"><col style="width:15%"><col style="width:10%">
+              <col style="width:12%"><col style="width:13%"><col style="width:15%"><col style="width:10%">
+            </colgroup>
             <thead><tr>
               <th class="camp-sortable" onclick="commSort('username')">Publisher ${arrow('username')}</th>
               <th>Publisher / Partner ID</th>
