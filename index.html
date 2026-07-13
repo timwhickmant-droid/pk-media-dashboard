@@ -10,6 +10,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
   // Synchronous auth check — runs BEFORE body renders so we never flash
   // unauthenticated content (login under dashboard) or vice versa.
@@ -8575,17 +8577,107 @@ function commBuildReportHtml(rows, month) {
 }
 
 function commDownloadPDF() {
-  if (typeof html2pdf === 'undefined') { if (typeof showToast === 'function') showToast('PDF library not loaded — check your connection'); return; }
   const rows = commFilteredRows();
   if (!rows.length) { if (typeof showToast === 'function') showToast('No commission data to export'); return; }
   const month = document.getElementById('commMonthSelect')?.value || '';
 
-  // Use the browser's native print-to-PDF: it paginates tables correctly and
-  // keeps text crisp/selectable (unlike html2canvas rasterization, which clipped
-  // columns and left blank pages). The user picks "Save as PDF" as the target.
+  // Vector PDF via jsPDF + autoTable: one-click direct download with real
+  // (selectable) text and correct pagination. Falls back to the print dialog
+  // if the CDN libraries didn't load.
+  if (!window.jspdf || !window.jspdf.jsPDF) { commPrintPDF(rows, month); return; }
+
+  const money = v => '$' + (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const intf  = v => Math.round(v || 0).toLocaleString('en-US');
+  const GREEN = [15, 61, 46], LIGHT = [209, 250, 229];
+
+  const byBrand = {};
+  rows.forEach(r => { (byBrand[r.brand] = byBrand[r.brand] || []).push(r); });
+  const sumComm = a => a.reduce((s, r) => s + (r.commission || 0), 0);
+  const order = Object.keys(byBrand).sort((a, b) => sumComm(byBrand[b]) - sumComm(byBrand[a]));
+
+  const gComm  = sumComm(rows);
+  const gSales = rows.reduce((s, r) => s + (r.sales || 0), 0);
+  const gTrans = rows.reduce((s, r) => s + (r.transactions || 0), 0);
+  const gRate  = gSales > 0 ? ((gComm / gSales) * 100).toFixed(1) + '%' : '—';
+
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const M = 12; // margin
+
+  // Header
+  doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(...GREEN);
+  doc.text('Affiliate Commission Report', M, 18);
+  doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(85);
+  doc.text(month || '', M, 24);
+  doc.setFontSize(7).setTextColor(136);
+  doc.text('Generated ' + new Date().toLocaleString('en-US'), pageW - M, 16, { align: 'right' });
+  doc.text('PK Media · Brand Performance', pageW - M, 20, { align: 'right' });
+  doc.setDrawColor(...GREEN).setLineWidth(0.6).line(M, 27, pageW - M, 27);
+
+  // KPI summary row
+  const kpis = [
+    ['TOTAL COMMISSION', money(gComm)], ['TOTAL SALES', money(gSales)],
+    ['TRANSACTIONS', intf(gTrans)], ['COMMISSION RATE', gRate], ['PUBLISHERS', intf(rows.length)]
+  ];
+  const kpiW = (pageW - 2 * M) / kpis.length;
+  kpis.forEach(([label, val], i) => {
+    const x = M + i * kpiW;
+    doc.setFont('helvetica', 'normal').setFontSize(6.5).setTextColor(136).text(label, x, 33);
+    doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(17).text(val, x, 39);
+  });
+
+  // One table per brand
+  let y = 46;
+  order.forEach(brand => {
+    const list = byBrand[brand].slice().sort((a, b) => (b.commission || 0) - (a.commission || 0));
+    const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].join(', ');
+    const tC = sumComm(list), tS = list.reduce((s, r) => s + (r.sales || 0), 0), tT = list.reduce((s, r) => s + (r.transactions || 0), 0);
+    const tR = tS > 0 ? ((tC / tS) * 100).toFixed(1) + '%' : '—';
+
+    // Brand heading (add a page if too close to the bottom)
+    if (y > doc.internal.pageSize.getHeight() - 40) { doc.addPage(); y = 16; }
+    doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...GREEN).text(brand, M, y);
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(136)
+       .text('· ' + nets, M + doc.getTextWidth(brand) + 2, y);
+
+    doc.autoTable({
+      startY: y + 2,
+      margin: { left: M, right: M },
+      head: [['Publisher', 'Publisher / Partner ID', 'Transactions', 'Sales', 'Commission', 'Rate']],
+      body: list.map(r => [
+        r.username || '—', r.publisherId || '—', intf(r.transactions),
+        money(r.sales), money(r.commission),
+        r.sales > 0 ? ((r.commission / r.sales) * 100).toFixed(1) + '%' : '—'
+      ]),
+      foot: [['TOTAL', '', intf(tT), money(tS), money(tC), tR]],
+      theme: 'grid',
+      styles:     { font: 'helvetica', fontSize: 7.5, cellPadding: 1.6, textColor: 17, lineColor: 230, lineWidth: 0.1 },
+      headStyles: { fillColor: GREEN, textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+      footStyles: { fillColor: LIGHT, textColor: 17, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 52 }, 1: { cellWidth: 38, textColor: 100 },
+        2: { halign: 'right' }, 3: { halign: 'right' },
+        4: { halign: 'right', fontStyle: 'bold' }, 5: { halign: 'right' }
+      }
+    });
+    y = doc.lastAutoTable.finalY + 9;
+  });
+
+  // Grand total
+  if (y > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); y = 16; }
+  doc.setDrawColor(...GREEN).setLineWidth(0.6).line(M, y - 3, pageW - M, y - 3);
+  doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(17);
+  doc.text('GRAND TOTAL · all brands', M, y + 2);
+  doc.text(intf(gTrans) + ' txns · ' + money(gSales) + ' sales · ' + money(gComm) + ' commission (' + gRate + ')', pageW - M, y + 2, { align: 'right' });
+
+  doc.save('commission-report-' + (month || 'export').replace(/\s+/g, '-').toLowerCase() + '.pdf');
+  if (typeof showToast === 'function') showToast('PDF downloaded');
+}
+
+// Fallback when the jsPDF CDN libraries are unavailable: native print-to-PDF.
+function commPrintPDF(rows, month) {
   const win = window.open('', '_blank', 'width=920,height=1040');
   if (!win) { if (typeof showToast === 'function') showToast('Allow pop-ups for this site to download the PDF'); return; }
-
   const doc = '<!doctype html><html><head><meta charset="utf-8">' +
     '<title>Commission Report' + (month ? ' — ' + month : '') + '</title>' +
     '<style>' +
@@ -8601,7 +8693,6 @@ function commDownloadPDF() {
     '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},200)};' +
     'window.onafterprint=function(){window.close();};</scr' + 'ipt>' +
     '</body></html>';
-
   win.document.open();
   win.document.write(doc);
   win.document.close();
