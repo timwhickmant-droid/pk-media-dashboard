@@ -1895,7 +1895,12 @@ html.theme-light .camp-date-option:hover { background:rgba(0,0,0,0.04); }
 .camp-sort-arrow.active { opacity:1; color:#3b82f6; }
 .camp-name-cell { font-weight:700; font-size:13px; }
 /* Commission tab */
-#commTable tfoot td { font-weight:900; color:var(--text-primary); border-top:2px solid var(--border-strong); background:var(--card-elevated); padding:11px 14px; font-size:13px; }
+#commTables tfoot td { font-weight:900; color:var(--text-primary); border-top:2px solid var(--border-strong); background:var(--card-elevated); padding:11px 14px; font-size:13px; }
+.comm-brand-block { margin-bottom:22px; }
+.comm-brand-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+.comm-brand-title { font-size:16px; font-weight:800; color:var(--text-primary); display:flex; align-items:center; gap:8px; }
+.comm-brand-title .comm-brand-dot { width:11px; height:11px; }
+.comm-brand-stats { font-size:12px; color:var(--text-secondary); }
 .comm-brand-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; vertical-align:middle; }
 .comm-net-chip { display:inline-block; font-size:10px; font-weight:800; padding:2px 9px; border-radius:20px; letter-spacing:.03em; }
 .comm-net-awin { background:rgba(139,92,246,.15); color:#a78bfa; }
@@ -4259,32 +4264,13 @@ html.theme-light .sidebar-brand-icon {
     <div class="camp-plat-snap" id="commBreakdown"></div>
 
     <!-- Search -->
-    <div class="camp-filter-bar" style="display:flex">
+    <div class="camp-filter-bar" style="display:flex;align-items:center;gap:12px">
       <input class="camp-search" id="commSearch" type="text" placeholder="Search publisher or ID…" oninput="commRenderTable()" style="flex:1">
+      <div class="camp-table-info" id="commTableInfo"></div>
     </div>
 
-    <!-- Publisher table -->
-    <div class="camp-table-wrap">
-      <table class="camp-table" id="commTable">
-        <thead>
-          <tr>
-            <th class="camp-sortable" onclick="commSort('username')">Publisher <span class="camp-sort-arrow" id="comsrt_username">↕</span></th>
-            <th>Publisher ID</th>
-            <th>Brand</th>
-            <th>Network</th>
-            <th class="camp-sortable" onclick="commSort('transactions')">Transactions <span class="camp-sort-arrow" id="comsrt_transactions">↕</span></th>
-            <th class="camp-sortable" onclick="commSort('sales')">Sales <span class="camp-sort-arrow" id="comsrt_sales">↕</span></th>
-            <th class="camp-sortable" onclick="commSort('commission')">Commission <span class="camp-sort-arrow" id="comsrt_commission">↕</span></th>
-            <th>Rate</th>
-          </tr>
-        </thead>
-        <tbody id="commTableBody"></tbody>
-        <tfoot id="commTableFoot"></tfoot>
-      </table>
-      <div class="camp-table-footer">
-        <div class="camp-table-info" id="commTableInfo"></div>
-      </div>
-    </div>
+    <!-- One table per brand -->
+    <div id="commTables"></div>
   </div><!-- /p_commission -->
 
   <!-- ══════════════════════════════════════
@@ -8402,61 +8388,83 @@ function commRenderTable() {
     }).join('') || '<div class="camp-plat-snap-meta" style="padding:8px">No commission data for this selection.</div>';
   }
 
-  // ── Table (adds search on top of the filters) ──
+  // ── One table per brand (search narrows rows; sort applies within each table) ──
   const q = (document.getElementById('commSearch')?.value || '').trim().toLowerCase();
-  let rows = filtered.filter(r =>
+  const searched = filtered.filter(r =>
     !q || (r.username || '').toLowerCase().includes(q) || (r.publisherId || '').toLowerCase().includes(q));
 
   const col = _commState.sortCol, dir = _commState.sortDir;
-  rows.sort((a, b) => {
+  const sortRows = arr => arr.slice().sort((a, b) => {
     const av = a[col] ?? -Infinity, bv = b[col] ?? -Infinity;
     return typeof av === 'string' ? String(av).localeCompare(String(bv)) * dir : (av - bv) * dir;
   });
+  const arrow = c => _commState.sortCol === c
+    ? `<span class="camp-sort-arrow active">${_commState.sortDir === 1 ? '▲' : '▼'}</span>`
+    : '<span class="camp-sort-arrow">↕</span>';
 
-  const tbody = document.getElementById('commTableBody');
-  if (tbody) {
-    tbody.innerHTML = rows.map(r => {
-      const dot  = BRAND_DOT[r.brand] || '#94a3b8';
-      const rt   = r.sales > 0 ? ((r.commission / r.sales) * 100).toFixed(1) + '%' : '—';
-      return `<tr>
-        <td class="camp-name-cell">${r.username || '—'}</td>
-        <td style="color:var(--text-secondary)">${r.publisherId || '—'}</td>
-        <td><span class="comm-brand-dot" style="background:${dot}"></span>${r.brand}</td>
-        <td>${commNetChip(r.platform)}</td>
-        <td>${fmtInt(r.transactions)}</td>
-        <td>${fmtUSD(r.sales)}</td>
-        <td style="color:#4ade80;font-weight:700">${fmtUSD(r.commission)}</td>
-        <td>${rt}</td>
-      </tr>`;
-    }).join('') || `<tr><td colspan="8" class="camp-no-data" style="text-align:center;padding:26px;color:var(--text-secondary)">No publishers match your filters.</td></tr>`;
-  }
+  // Group by brand, ordered by total commission (desc)
+  const byBrand = {};
+  searched.forEach(r => { (byBrand[r.brand] = byBrand[r.brand] || []).push(r); });
+  const sumComm = arr => arr.reduce((s, r) => s + (r.commission || 0), 0);
+  const brandOrder = Object.keys(byBrand).sort((a, b) => sumComm(byBrand[b]) - sumComm(byBrand[a]));
 
-  // ── Total row (matches the visible/searched rows) ──
-  const foot = document.getElementById('commTableFoot');
-  if (foot) {
-    const fComm  = rows.reduce((s, r) => s + (r.commission || 0), 0);
-    const fSales = rows.reduce((s, r) => s + (r.sales || 0), 0);
-    const fTrans = rows.reduce((s, r) => s + (r.transactions || 0), 0);
-    const fRate  = fSales > 0 ? ((fComm / fSales) * 100).toFixed(1) + '%' : '—';
-    foot.innerHTML = rows.length ? `<tr>
-      <td>TOTAL</td><td></td><td></td><td></td>
-      <td>${fmtInt(fTrans)}</td>
-      <td>${fmtUSD(fSales)}</td>
-      <td style="color:#4ade80">${fmtUSD(fComm)}</td>
-      <td>${fRate}</td>
-    </tr>` : '';
+  const container = document.getElementById('commTables');
+  if (container) {
+    container.innerHTML = brandOrder.map(brand => {
+      const rows   = sortRows(byBrand[brand]);
+      const dot    = BRAND_DOT[brand] || '#94a3b8';
+      const nets   = [...new Set(rows.map(r => r.platform).filter(Boolean))];
+      const tComm  = sumComm(rows);
+      const tSales = rows.reduce((s, r) => s + (r.sales || 0), 0);
+      const tTrans = rows.reduce((s, r) => s + (r.transactions || 0), 0);
+      const tRate  = tSales > 0 ? ((tComm / tSales) * 100).toFixed(1) + '%' : '—';
+      const active = rows.filter(r => (r.transactions || 0) > 0 || (r.commission || 0) > 0).length;
+
+      const body = rows.map(r => {
+        const rt = r.sales > 0 ? ((r.commission / r.sales) * 100).toFixed(1) + '%' : '—';
+        return `<tr>
+          <td class="camp-name-cell">${r.username || '—'}</td>
+          <td style="color:var(--text-secondary)">${r.publisherId || '—'}</td>
+          <td>${commNetChip(r.platform)}</td>
+          <td>${fmtInt(r.transactions)}</td>
+          <td>${fmtUSD(r.sales)}</td>
+          <td style="color:#4ade80;font-weight:700">${fmtUSD(r.commission)}</td>
+          <td>${rt}</td>
+        </tr>`;
+      }).join('');
+
+      return `<div class="comm-brand-block">
+        <div class="comm-brand-head">
+          <div class="comm-brand-title"><span class="comm-brand-dot" style="background:${dot}"></span>${brand} ${nets.map(commNetChip).join(' ')}</div>
+          <div class="comm-brand-stats">${rows.length} publishers · ${active} active · <strong style="color:#4ade80">${fmtUSD(tComm)}</strong></div>
+        </div>
+        <div class="camp-table-wrap">
+          <table class="camp-table comm-brand-table">
+            <thead><tr>
+              <th class="camp-sortable" onclick="commSort('username')">Publisher ${arrow('username')}</th>
+              <th>Publisher / Partner ID</th>
+              <th>Network</th>
+              <th class="camp-sortable" onclick="commSort('transactions')">Transactions ${arrow('transactions')}</th>
+              <th class="camp-sortable" onclick="commSort('sales')">Sales ${arrow('sales')}</th>
+              <th class="camp-sortable" onclick="commSort('commission')">Commission ${arrow('commission')}</th>
+              <th>Rate</th>
+            </tr></thead>
+            <tbody>${body}</tbody>
+            <tfoot><tr>
+              <td>TOTAL</td><td></td><td></td>
+              <td>${fmtInt(tTrans)}</td>
+              <td>${fmtUSD(tSales)}</td>
+              <td style="color:#4ade80">${fmtUSD(tComm)}</td>
+              <td>${tRate}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </div>`;
+    }).join('') || `<div class="camp-plat-snap-meta" style="padding:16px">No publishers match your filters.</div>`;
   }
 
   const info = document.getElementById('commTableInfo');
-  if (info) info.textContent = `${rows.length} of ${filtered.length} publishers`;
-
-  // Sort arrows
-  ['username','transactions','sales','commission'].forEach(c => {
-    const el = document.getElementById('comsrt_' + c);
-    if (!el) return;
-    el.textContent = _commState.sortCol === c ? (_commState.sortDir === 1 ? '▲' : '▼') : '↕';
-    el.classList.toggle('active', _commState.sortCol === c);
-  });
+  if (info) info.textContent = `${searched.length} of ${filtered.length} publishers`;
 }
 
 function commSort(col) {
