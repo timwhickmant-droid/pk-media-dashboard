@@ -11,6 +11,10 @@
 const SPREADSHEET_ID = '19EmpiQ6QrR3FYT5FlnmEns-bWilZCk9ffqgRoJVLg7g';
 const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 
+// Monthly Affiliate Report spreadsheet — source for the Commission tab.
+// Per-publisher detail lives in tabs named like "AWIN GREEN ROADS DATA (JUNE)".
+const AFFILIATE_SPREADSHEET_ID = '1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4';
+
 // Platforms to exclude entirely from the feed (lowercase). Rows on these
 // platforms are dropped before any aggregation, so revenueTrend/mtd/meta/allRows
 // all exclude them.
@@ -95,6 +99,15 @@ function doGet(e) {
     });
 
     payload.goals = getGoals(ss);
+
+    // Commission (affiliate) detail from the separate Monthly Affiliate Report.
+    // Never let a problem here break the main feed.
+    try {
+      payload.commission = readCommission();
+    } catch (cErr) {
+      payload.commission = [];
+      payload.commissionError = cErr.message;
+    }
 
     payload.generatedAt = new Date().toISOString();
     return json(payload, e);
@@ -328,6 +341,102 @@ function shortWeek(w) {
 
 function empty() {
   return { weeklyDetail: [], mtd: [], dailySpend: [], revenueTrend: [], allRows: [], meta: {}, generatedAt: new Date().toISOString() };
+}
+
+// Commission (affiliate) reader
+
+// Reads per-publisher rows from every "... DATA (MONTH)" tab in the affiliate
+// spreadsheet and returns a flat array the dashboard's Commission tab consumes.
+function readCommission() {
+  var ss  = SpreadsheetApp.openById(AFFILIATE_SPREADSHEET_ID);
+  var out = [];
+
+  ss.getSheets().forEach(function(sh) {
+    var name = sh.getName().trim();
+    // Only per-publisher detail tabs, e.g. "AWIN GREEN ROADS DATA (JUNE)"
+    var dm = name.match(/\bDATA\b\s*\(([^)]*)\)/i);
+    if (!dm) return;
+    var tabMonth = dm[1].trim();
+
+    var platMatch = name.match(/^([A-Za-z.]+)\b/);
+    var platform  = platMatch ? normalizeAffPlatform(platMatch[1]) : '';
+
+    var range   = sh.getDataRange();
+    var values  = range.getValues();
+    var display = range.getDisplayValues();
+    if (values.length < 2) return;
+
+    var headers = values[0].map(function(h) { return String(h).trim(); });
+    var idx = {
+      date:     find(headers, /date/i),
+      brand:    find(headers, /^brand$/i),
+      pubId:    find(headers, /publisher\s*id|^publisher$/i),
+      username: find(headers, /user\s*name|publisher\s*name/i),
+      trans:    find(headers, /transaction/i),
+      sales:    find(headers, /^sales$/i),
+      comm:     find(headers, /commission/i)
+    };
+
+    for (var i = 1; i < values.length; i++) {
+      var row = values[i];
+      var firstCell = String(row[0] || '').trim().toLowerCase();
+      if (firstCell === 'total') continue; // skip footer total row
+
+      var brandRaw = idx.brand >= 0 ? String(row[idx.brand] || '').trim() : '';
+      if (!brandRaw) continue;
+
+      out.push({
+        monthKey:     affMonthKey(idx.date >= 0 ? (display[i][idx.date] || row[idx.date]) : '', tabMonth),
+        platform:     platform,
+        brand:        normalizeAffBrand(brandRaw),
+        publisherId:  idx.pubId    >= 0 ? String(row[idx.pubId] || '').trim() : '',
+        username:     idx.username >= 0 ? String(row[idx.username] || '').trim() : '',
+        transactions: toNum(idx.trans >= 0 ? row[idx.trans] : null) || 0,
+        sales:        toNum(idx.sales >= 0 ? row[idx.sales] : null) || 0,
+        commission:   toNum(idx.comm  >= 0 ? row[idx.comm]  : null) || 0
+      });
+    }
+  });
+
+  return out;
+}
+
+function normalizeAffPlatform(p) {
+  var k = String(p).trim().toUpperCase();
+  if (k === 'AWIN')   return 'AWIN';
+  if (k === 'IMPACT') return 'Impact';
+  return String(p).trim();
+}
+
+function normalizeAffBrand(name) {
+  var k = String(name).trim().toLowerCase().replace(/\s+/g, ' ');
+  var map = {
+    'green roads':   'Greenroads',
+    'greenroads':    'Greenroads',
+    'hemp bombs':    'HempBombs',
+    'hempbombs':     'HempBombs',
+    'mystic labs':   'Mystic Labs',
+    'cannabis life': 'Cannabis Life'
+  };
+  if (map[k]) return map[k];
+  return k.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
+// Resolve a "Month YYYY" key from the DATE cell, else the tab's month + year.
+function affMonthKey(dateVal, tabMonth) {
+  if (dateVal instanceof Date) {
+    return Utilities.formatDate(dateVal, Session.getScriptTimeZone(), 'MMMM yyyy');
+  }
+  var s = String(dateVal || '').trim();
+  var m = s.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (m) return capitalize(m[1]) + ' ' + m[2];
+  if (tabMonth) return capitalize(tabMonth) + ' ' + (new Date()).getFullYear();
+  return s;
+}
+
+function capitalize(w) {
+  w = String(w).toLowerCase();
+  return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
 }
 
 function json(obj, e) {

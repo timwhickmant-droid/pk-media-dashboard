@@ -1894,6 +1894,15 @@ html.theme-light .camp-date-option:hover { background:rgba(0,0,0,0.04); }
 .camp-sort-arrow { opacity:.4; }
 .camp-sort-arrow.active { opacity:1; color:#3b82f6; }
 .camp-name-cell { font-weight:700; font-size:13px; }
+/* Commission tab */
+#commTable tfoot td { font-weight:900; color:var(--text-primary); border-top:2px solid var(--border-strong); background:var(--card-elevated); padding:11px 14px; font-size:13px; }
+.comm-brand-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+.comm-net-chip { display:inline-block; font-size:10px; font-weight:800; padding:2px 9px; border-radius:20px; letter-spacing:.03em; }
+.comm-net-awin { background:rgba(139,92,246,.15); color:#a78bfa; }
+.comm-net-impact { background:rgba(96,165,250,.15); color:#60a5fa; }
+.comm-break-card { cursor:default !important; flex-direction:column; align-items:flex-start !important; gap:4px !important; }
+.comm-break-val { font-size:16px; font-weight:900; color:#4ade80; }
+.comm-break-meta { font-size:10px; color:var(--text-secondary); }
 .camp-name-sub { font-size:10px; color:var(--text-secondary); margin-top:1px; }
 .camp-status-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; }
 .camp-status-chip.active   { background:rgba(74,222,128,.13); color:#4ade80; }
@@ -3456,6 +3465,9 @@ html.theme-light .sidebar-brand-icon {
   <div class="nav-item" onclick="showPage('p5',this)">
     <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><path d="m3 11 18-5-5 18-4-8-9-5Z"/><path d="m12 16 4-10"/></svg></div><span class="nav-label">Campaigns</span><span class="nav-num" id="campNavBadge"></span>
   </div>
+  <div class="nav-item" onclick="showPage('p_commission',this)">
+    <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><span class="nav-label">Commission</span>
+  </div>
   <div class="nav-item" onclick="showPage('p_reports',this)">
     <div class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg></div><span class="nav-label">Reports</span>
   </div>
@@ -4195,6 +4207,87 @@ html.theme-light .sidebar-brand-icon {
   </div><!-- /p5 -->
 
   <!-- ══════════════════════════════════════
+       P_COMMISSION — AFFILIATE COMMISSION
+  ══════════════════════════════════════ -->
+  <div class="page" id="p_commission">
+    <div class="camp-header">
+      <div>
+        <h1 class="camp-title">Affiliate Commission</h1>
+        <p class="camp-sub">Publisher-level commission, sales, and transactions from your affiliate networks.</p>
+      </div>
+      <div class="camp-header-right">
+        <select class="camp-select" id="commMonthSelect" onchange="renderCommission(STATE.data)" title="Month"></select>
+        <select class="camp-select" id="commBrand" onchange="commRenderTable()" title="Brand"><option value="">All Brands</option></select>
+        <select class="camp-select" id="commPlatform" onchange="commRenderTable()" title="Network"><option value="">All Networks</option></select>
+        <button class="camp-icon-btn" title="Export CSV" onclick="commExportCSV()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="camp-kpi-row" id="commKpiRow">
+      <div class="camp-kpi-card">
+        <div class="camp-kpi-top"><span class="camp-kpi-icon" style="color:#4ade80">$</span><span class="camp-kpi-label">Total Commission</span></div>
+        <div class="camp-kpi-val" id="comm_total">—</div>
+        <div class="camp-kpi-wow" id="comm_total_sub"></div>
+      </div>
+      <div class="camp-kpi-card">
+        <div class="camp-kpi-top"><span class="camp-kpi-icon" style="color:#60a5fa">$</span><span class="camp-kpi-label">Total Sales</span></div>
+        <div class="camp-kpi-val" id="comm_sales">—</div>
+        <div class="camp-kpi-wow" id="comm_sales_sub"></div>
+      </div>
+      <div class="camp-kpi-card">
+        <div class="camp-kpi-top"><span class="camp-kpi-icon" style="color:#818cf8">⇄</span><span class="camp-kpi-label">Transactions</span></div>
+        <div class="camp-kpi-val" id="comm_trans">—</div>
+        <div class="camp-kpi-wow" id="comm_trans_sub"></div>
+      </div>
+      <div class="camp-kpi-card">
+        <div class="camp-kpi-top"><span class="camp-kpi-icon" style="color:#fbbf24">👥</span><span class="camp-kpi-label">Active Publishers</span></div>
+        <div class="camp-kpi-val" id="comm_pubs">—</div>
+        <div class="camp-kpi-wow" id="comm_pubs_sub"></div>
+      </div>
+      <div class="camp-kpi-card">
+        <div class="camp-kpi-top"><span class="camp-kpi-icon" style="color:#fb923c">%</span><span class="camp-kpi-label">Commission Rate</span></div>
+        <div class="camp-kpi-val" id="comm_rate">—</div>
+        <div class="camp-kpi-wow" id="comm_rate_sub">commission ÷ sales</div>
+      </div>
+    </div>
+
+    <!-- Brand × Network breakdown -->
+    <div class="camp-plat-snap" id="commBreakdown"></div>
+
+    <!-- Search -->
+    <div class="camp-filter-bar" style="display:flex">
+      <input class="camp-search" id="commSearch" type="text" placeholder="Search publisher or ID…" oninput="commRenderTable()" style="flex:1">
+    </div>
+
+    <!-- Publisher table -->
+    <div class="camp-table-wrap">
+      <table class="camp-table" id="commTable">
+        <thead>
+          <tr>
+            <th class="camp-sortable" onclick="commSort('username')">Publisher <span class="camp-sort-arrow" id="comsrt_username">↕</span></th>
+            <th>Publisher ID</th>
+            <th>Brand</th>
+            <th>Network</th>
+            <th class="camp-sortable" onclick="commSort('transactions')">Transactions <span class="camp-sort-arrow" id="comsrt_transactions">↕</span></th>
+            <th class="camp-sortable" onclick="commSort('sales')">Sales <span class="camp-sort-arrow" id="comsrt_sales">↕</span></th>
+            <th class="camp-sortable" onclick="commSort('commission')">Commission <span class="camp-sort-arrow" id="comsrt_commission">↕</span></th>
+            <th>Rate</th>
+          </tr>
+        </thead>
+        <tbody id="commTableBody"></tbody>
+        <tfoot id="commTableFoot"></tfoot>
+      </table>
+      <div class="camp-table-footer">
+        <div class="camp-table-info" id="commTableInfo"></div>
+      </div>
+    </div>
+  </div><!-- /p_commission -->
+
+  <!-- ══════════════════════════════════════
        P_GOALS — TARGETS
   ══════════════════════════════════════ -->
   <div class="page" id="p_goals">
@@ -4878,7 +4971,7 @@ const SAMPLE = {
 /* ═══════════════════════════════════════
    Navigation
 ═══════════════════════════════════════ */
-const pageTitles = { p1:'Overview', p2:'Analytics', p3:'Platforms', p4:'Settings', p5:'Campaigns', p_goals:'Goals', p_reports:'Reports', p_alerts:'Alerts' };
+const pageTitles = { p1:'Overview', p2:'Analytics', p3:'Platforms', p4:'Settings', p5:'Campaigns', p_commission:'Commission', p_goals:'Goals', p_reports:'Reports', p_alerts:'Alerts' };
 function showPage(id, el) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -5907,6 +6000,7 @@ function applyView() {
   updateBrandSidebar();
   updateSortIndicators();
   if (STATE.data) renderCampaigns(STATE.data);
+  if (STATE.data) renderCommission(STATE.data);
 
   renderReports(viewData);
   renderAlertsPage(viewData);
@@ -8199,6 +8293,194 @@ function campRenderBottomCards(rows) {
     {label:'Draft',     count:draft,     pct:Math.round(draft/total*100),     color:'#94a3b8'},
     {label:'Completed', count:completed, pct:0, color:'#60a5fa'}
   ].map(s => `<div class="camp-legend-row"><div class="camp-legend-dot" style="background:${s.color}"></div>${s.label} <strong style="color:var(--text-primary);margin-left:auto">${s.count} (${s.pct}%)</strong></div>`).join('');
+}
+
+/* ═══════════════════════════════════════
+   Commission (Affiliate) tab
+═══════════════════════════════════════ */
+let _commState = { monthRows: [], sortCol: 'commission', sortDir: -1 };
+
+const COMM_MONTH_IDX = {
+  january:0, february:1, march:2, april:3, may:4, june:5,
+  july:6, august:7, september:8, october:9, november:10, december:11,
+  jan:0, feb:1, mar:2, apr:3, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11
+};
+function commMonthSortKey(mk) {
+  const m = String(mk || '').trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (!m) return -1;
+  const mi = COMM_MONTH_IDX[m[1].toLowerCase()];
+  return mi === undefined ? -1 : parseInt(m[2], 10) * 12 + mi;
+}
+
+function renderCommission(data) {
+  const all = (data && data.commission) || [];
+  const sel = document.getElementById('commMonthSelect');
+  if (!sel) return;
+
+  // Available months, newest first
+  const months = [...new Set(all.map(r => r.monthKey).filter(Boolean))]
+    .sort((a, b) => commMonthSortKey(b) - commMonthSortKey(a));
+
+  const prev = sel.value;
+  sel.innerHTML = months.map(m => `<option value="${m}">${m}</option>`).join('')
+    || '<option value="">No data</option>';
+  // Preserve the user's selection if still present, else default to latest
+  sel.value = months.includes(prev) ? prev : (months[0] || '');
+
+  const month = sel.value;
+  _commState.monthRows = all.filter(r => r.monthKey === month);
+
+  // Populate brand + network filters from this month's rows (preserve selection)
+  const brandSel = document.getElementById('commBrand');
+  const platSel  = document.getElementById('commPlatform');
+  const brands   = [...new Set(_commState.monthRows.map(r => r.brand).filter(Boolean))].sort();
+  const plats    = [...new Set(_commState.monthRows.map(r => r.platform).filter(Boolean))].sort();
+  if (brandSel) {
+    const pv = brandSel.value;
+    brandSel.innerHTML = '<option value="">All Brands</option>' + brands.map(b => `<option>${b}</option>`).join('');
+    brandSel.value = brands.includes(pv) ? pv : '';
+  }
+  if (platSel) {
+    const pv = platSel.value;
+    platSel.innerHTML = '<option value="">All Networks</option>' + plats.map(p => `<option>${p}</option>`).join('');
+    platSel.value = plats.includes(pv) ? pv : '';
+  }
+
+  commRenderTable();
+}
+
+// Rows after brand/network filters (KPIs + breakdown use these; search only narrows the table).
+function commFilteredRows() {
+  const brand = document.getElementById('commBrand')?.value || '';
+  const plat  = document.getElementById('commPlatform')?.value || '';
+  return _commState.monthRows.filter(r =>
+    (!brand || r.brand === brand) && (!plat || r.platform === plat));
+}
+
+function commNetChip(p) {
+  const cls = /awin/i.test(p) ? 'comm-net-awin' : /impact/i.test(p) ? 'comm-net-impact' : '';
+  return `<span class="comm-net-chip ${cls}">${p || '—'}</span>`;
+}
+
+function commRenderTable() {
+  const filtered = commFilteredRows();
+
+  // ── KPIs (reflect brand/network filters, not search) ──
+  const totComm  = filtered.reduce((s, r) => s + (r.commission || 0), 0);
+  const totSales = filtered.reduce((s, r) => s + (r.sales || 0), 0);
+  const totTrans = filtered.reduce((s, r) => s + (r.transactions || 0), 0);
+  const active   = filtered.filter(r => (r.transactions || 0) > 0 || (r.commission || 0) > 0).length;
+  const rate     = totSales > 0 ? (totComm / totSales) * 100 : null;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('comm_total', fmtUSD(totComm));
+  set('comm_sales', fmtUSD(totSales));
+  set('comm_trans', fmtInt(totTrans));
+  set('comm_pubs',  fmtInt(active));
+  set('comm_rate',  rate == null ? '—' : rate.toFixed(1) + '%');
+  set('comm_total_sub', filtered.length + ' publisher rows');
+
+  // ── Brand × Network breakdown ──
+  const breakEl = document.getElementById('commBreakdown');
+  if (breakEl) {
+    const groups = {};
+    filtered.forEach(r => {
+      const key = r.brand + '||' + r.platform;
+      if (!groups[key]) groups[key] = { brand: r.brand, platform: r.platform, commission: 0, sales: 0, pubs: 0 };
+      groups[key].commission += r.commission || 0;
+      groups[key].sales      += r.sales || 0;
+      if ((r.transactions || 0) > 0 || (r.commission || 0) > 0) groups[key].pubs++;
+    });
+    const cards = Object.values(groups).sort((a, b) => b.commission - a.commission);
+    breakEl.innerHTML = cards.map(g => {
+      const dot = BRAND_DOT[g.brand] || '#94a3b8';
+      return `<div class="camp-plat-snap-card comm-break-card">
+        <div class="camp-plat-snap-name"><span class="comm-brand-dot" style="background:${dot}"></span>${g.brand} · ${commNetChip(g.platform)}</div>
+        <div class="comm-break-val">${fmtUSD(g.commission)}</div>
+        <div class="comm-break-meta">${fmtUSD0(g.sales)} sales · ${g.pubs} active publishers</div>
+      </div>`;
+    }).join('') || '<div class="camp-plat-snap-meta" style="padding:8px">No commission data for this selection.</div>';
+  }
+
+  // ── Table (adds search on top of the filters) ──
+  const q = (document.getElementById('commSearch')?.value || '').trim().toLowerCase();
+  let rows = filtered.filter(r =>
+    !q || (r.username || '').toLowerCase().includes(q) || (r.publisherId || '').toLowerCase().includes(q));
+
+  const col = _commState.sortCol, dir = _commState.sortDir;
+  rows.sort((a, b) => {
+    const av = a[col] ?? -Infinity, bv = b[col] ?? -Infinity;
+    return typeof av === 'string' ? String(av).localeCompare(String(bv)) * dir : (av - bv) * dir;
+  });
+
+  const tbody = document.getElementById('commTableBody');
+  if (tbody) {
+    tbody.innerHTML = rows.map(r => {
+      const dot  = BRAND_DOT[r.brand] || '#94a3b8';
+      const rt   = r.sales > 0 ? ((r.commission / r.sales) * 100).toFixed(1) + '%' : '—';
+      return `<tr>
+        <td class="camp-name-cell">${r.username || '—'}</td>
+        <td style="color:var(--text-secondary)">${r.publisherId || '—'}</td>
+        <td><span class="comm-brand-dot" style="background:${dot}"></span>${r.brand}</td>
+        <td>${commNetChip(r.platform)}</td>
+        <td>${fmtInt(r.transactions)}</td>
+        <td>${fmtUSD(r.sales)}</td>
+        <td style="color:#4ade80;font-weight:700">${fmtUSD(r.commission)}</td>
+        <td>${rt}</td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="8" class="camp-no-data" style="text-align:center;padding:26px;color:var(--text-secondary)">No publishers match your filters.</td></tr>`;
+  }
+
+  // ── Total row (matches the visible/searched rows) ──
+  const foot = document.getElementById('commTableFoot');
+  if (foot) {
+    const fComm  = rows.reduce((s, r) => s + (r.commission || 0), 0);
+    const fSales = rows.reduce((s, r) => s + (r.sales || 0), 0);
+    const fTrans = rows.reduce((s, r) => s + (r.transactions || 0), 0);
+    const fRate  = fSales > 0 ? ((fComm / fSales) * 100).toFixed(1) + '%' : '—';
+    foot.innerHTML = rows.length ? `<tr>
+      <td>TOTAL</td><td></td><td></td><td></td>
+      <td>${fmtInt(fTrans)}</td>
+      <td>${fmtUSD(fSales)}</td>
+      <td style="color:#4ade80">${fmtUSD(fComm)}</td>
+      <td>${fRate}</td>
+    </tr>` : '';
+  }
+
+  const info = document.getElementById('commTableInfo');
+  if (info) info.textContent = `${rows.length} of ${filtered.length} publishers`;
+
+  // Sort arrows
+  ['username','transactions','sales','commission'].forEach(c => {
+    const el = document.getElementById('comsrt_' + c);
+    if (!el) return;
+    el.textContent = _commState.sortCol === c ? (_commState.sortDir === 1 ? '▲' : '▼') : '↕';
+    el.classList.toggle('active', _commState.sortCol === c);
+  });
+}
+
+function commSort(col) {
+  if (_commState.sortCol === col) _commState.sortDir *= -1;
+  else { _commState.sortCol = col; _commState.sortDir = -1; }
+  commRenderTable();
+}
+
+function commExportCSV() {
+  const q = (document.getElementById('commSearch')?.value || '').trim().toLowerCase();
+  const rows = commFilteredRows().filter(r =>
+    !q || (r.username || '').toLowerCase().includes(q) || (r.publisherId || '').toLowerCase().includes(q));
+  const month = document.getElementById('commMonthSelect')?.value || '';
+  const head = ['Month','Network','Brand','Publisher ID','Publisher','Transactions','Sales','Commission'];
+  const esc  = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const lines = [head.map(esc).join(',')].concat(rows.map(r =>
+    [month, r.platform, r.brand, r.publisherId, r.username, r.transactions, r.sales, r.commission].map(esc).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `commission_${(month || 'export').replace(/\s+/g, '_')}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  if (typeof showToast === 'function') showToast('⬇ Exported ' + rows.length + ' publisher rows');
 }
 
 function renderCampaigns(data) {
