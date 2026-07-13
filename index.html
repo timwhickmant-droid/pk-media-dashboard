@@ -8529,7 +8529,7 @@ function commBuildReportHtml(rows, month) {
         <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right">${rt}</td>
       </tr>`;
     }).join('');
-    return `<div style="page-break-inside:avoid;margin-top:14px${bi > 0 ? ';page-break-before:always' : ''}">
+    return `<div style="page-break-inside:avoid;margin-top:18px">
       <h3 style="margin:0 0 5px;font-size:13px;color:#0f3d2e">${DISPLAY_BRAND[brand] || String(brand).toUpperCase()} <span style="font-weight:400;color:#888">· ${nets}</span></h3>
       <table style="width:100%;border-collapse:collapse;font-size:10px">
         <thead><tr style="background:#0f3d2e;color:#fff">
@@ -8630,16 +8630,21 @@ function commDownloadPDF() {
   // Display names matching the source sheet (normalized keys → sheet labels)
   const DISPLAY_BRAND = { 'Greenroads': 'GREEN ROADS', 'HempBombs': 'HEMP BOMBS', 'Mystic Labs': 'MYSTIC LABS', 'Cannabis Life': 'CANNABIS LIFE' };
 
-  // One page per brand: the first brand shares page 1 with the header/KPIs,
-  // every subsequent brand starts on a fresh page.
-  let y = 46;
+  // Keep each brand's table whole: start a brand on a new page only when it
+  // won't fit in the space left on the current one. (Green Roads fills page 1;
+  // Hemp Bombs + Mystic Labs share page 2.)
+  const pageH = doc.internal.pageSize.getHeight();
+  const ROW_H = 6; // ≈ row height in mm at 7.5pt + padding
+  let y = 52; // padding below the KPI summary
   order.forEach((brand, bi) => {
     const list = byBrand[brand].slice().sort((a, b) => (b.commission || 0) - (a.commission || 0));
     const nets = [...new Set(list.map(r => r.platform).filter(Boolean))].map(n => n.toUpperCase()).join(', ');
     const tC = sumComm(list), tS = list.reduce((s, r) => s + (r.sales || 0), 0), tT = list.reduce((s, r) => s + (r.transactions || 0), 0);
     const tR = tS > 0 ? ((tC / tS) * 100).toFixed(1) + '%' : '—';
 
-    if (bi > 0) { doc.addPage(); y = 20; }
+    // Estimated height: heading + header/footer + one line per publisher
+    const needed = 10 + (list.length + 2) * ROW_H;
+    if (bi > 0 && y + needed > pageH - 15) { doc.addPage(); y = 20; }
 
     // Brand heading, e.g. "GREEN ROADS · AWIN". Measure the brand width while
     // the bold font is still active so the network label never overlaps it.
@@ -8676,7 +8681,7 @@ function commDownloadPDF() {
         }
       }
     });
-    y = doc.lastAutoTable.finalY + 9;
+    y = doc.lastAutoTable.finalY + 14;
   });
 
   // Grand total
