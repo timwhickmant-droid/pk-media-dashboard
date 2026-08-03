@@ -77,8 +77,13 @@ function parseCookies(req) {
 function sessionCookie(token) {
   // Secure + HttpOnly + SameSite=Strict: not readable by JS, not sent
   // cross-site, only over HTTPS.
+  //
+  // Deliberately no Max-Age/Expires — that makes this a browser-session
+  // cookie, discarded when the browser closes, so visiting the site again
+  // requires signing in. SESSION_SECONDS still caps it inside the signed
+  // token, so a browser left open for days cannot hold a session forever.
   return COOKIE_NAME + '=' + encodeURIComponent(token) +
-    '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=' + SESSION_SECONDS;
+    '; HttpOnly; Secure; SameSite=Strict; Path=/';
 }
 
 function clearCookie() {

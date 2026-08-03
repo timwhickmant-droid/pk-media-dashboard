@@ -17,7 +17,10 @@
   // unauthenticated content (login under dashboard) or vice versa.
   (function() {
     try {
-      const raw = localStorage.getItem('bp_dash_session');
+      // sessionStorage, not localStorage: the session cookie is discarded when
+      // the browser closes, so this hint must die with it — otherwise the
+      // dashboard flashes into view before /api/session reports 401.
+      const raw = sessionStorage.getItem('bp_dash_session');
       if (raw) {
         const s = JSON.parse(raw);
         if (Date.now() < s.expires) {
@@ -4564,6 +4567,18 @@ function writeJson(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
 }
 
+// The signed-in record specifically lives in sessionStorage so it is cleared
+// when the browser closes, matching the server's session cookie. Everything
+// else (2FA enrolment, known devices, event log, preferences) stays in
+// localStorage because it should survive across sign-ins.
+function readSessionJson(fallback) {
+  try { const raw = sessionStorage.getItem(AUTH.STORAGE_KEY); return raw ? JSON.parse(raw) : fallback; }
+  catch (e) { return fallback; }
+}
+function writeSessionJson(value) {
+  try { sessionStorage.setItem(AUTH.STORAGE_KEY, JSON.stringify(value)); } catch (e) {}
+}
+
 /* ═══════════════════════════════════════
    EVENT LOG (login history + audit)
 ═══════════════════════════════════════ */
@@ -4609,8 +4624,8 @@ async function registerSession(username) {
   list.push(sess);
   writeJson(AUTH.SESSIONS_KEY, list);
   // Mirror the session id into the existing single-session record so revocation can match it.
-  const cur = readJson(AUTH.STORAGE_KEY, null) || {};
-  writeJson(AUTH.STORAGE_KEY, { ...cur, username, sessionId: sess.id, expires: sess.expiresAt });
+  const cur = readSessionJson(null) || {};
+  writeSessionJson({ ...cur, username, sessionId: sess.id, expires: sess.expiresAt });
   return sess;
 }
 function listSessions() {
@@ -4624,7 +4639,7 @@ function revokeSessionById(id) {
   writeJson(AUTH.SESSIONS_KEY, list);
 }
 function getCurrentSessionId() {
-  const s = readJson(AUTH.STORAGE_KEY, null);
+  const s = readSessionJson(null);
   return s && s.sessionId || null;
 }
 
@@ -4758,16 +4773,16 @@ function set2faFor(username, record) {
 
 function getSession() {
   try {
-    const raw = localStorage.getItem(AUTH.STORAGE_KEY);
+    const raw = sessionStorage.getItem(AUTH.STORAGE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    if (Date.now() > s.expires) { localStorage.removeItem(AUTH.STORAGE_KEY); return null; }
+    if (Date.now() > s.expires) { sessionStorage.removeItem(AUTH.STORAGE_KEY); return null; }
     return s;
   } catch (e) { return null; }
 }
 
 function setSession(username) {
-  localStorage.setItem(AUTH.STORAGE_KEY, JSON.stringify({
+  sessionStorage.setItem(AUTH.STORAGE_KEY, JSON.stringify({
     username,
     expires: Date.now() + AUTH.SESSION_HOURS * 3600_000
   }));
@@ -4777,7 +4792,7 @@ function setSession(username) {
 }
 
 function clearSession() {
-  localStorage.removeItem(AUTH.STORAGE_KEY);
+  sessionStorage.removeItem(AUTH.STORAGE_KEY);
   document.documentElement.classList.remove('is-authed');
 }
 
@@ -4842,7 +4857,7 @@ function hideLogin() {
 
 async function logout() {
   const sid = getCurrentSessionId();
-  const sess = readJson(AUTH.STORAGE_KEY, null);
+  const sess = readSessionJson(null);
   if (sid) revokeSessionById(sid);
   logEvent('logout', 'ok', { username: sess && sess.username }).catch(()=>{});
   // Await this: location.reload() below aborts in-flight requests, so firing
@@ -7543,7 +7558,7 @@ async function rehydrateSession(session) {
       };
       list.push(newSess);
       writeJson(AUTH.SESSIONS_KEY, list);
-      writeJson(AUTH.STORAGE_KEY, { ...session, sessionId: newSess.id });
+      writeSessionJson({ ...session, sessionId: newSess.id });
     } else {
       hit.lastSeen = Date.now();
       writeJson(AUTH.SESSIONS_KEY, list);
