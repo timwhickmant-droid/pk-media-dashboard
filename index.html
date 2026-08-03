@@ -4487,27 +4487,20 @@ html.theme-light .sidebar-brand-icon {
 
 <script>
 /* ═══════════════════════════════════════
-   AUTH — hardcoded admin accounts.
-   ⚠️ NOT real security. Anyone who views source can see hashes
-   and bypass. The Apps Script URL is also visible to anyone
-   who inspects the page. For real security move to Apps Script
-   HtmlService + Google login or a real backend with sessions.
-═══════════════════════════════════════ */
-// Each user has a SHA-256 hash of their password. Never write the plaintext
-// password anywhere in this file (including comments) — it ships to every
-// browser that loads the page, so a comment here is as public as the hash
-// is private. Generate a replacement hash locally and paste only the hash.
-const USERS = [
-  { username: 'admin', passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9' }
-];
+   AUTH — credentials live on the server, not here.
+   The username and a scrypt hash of the password are Vercel environment
+   variables; /api/login checks them and issues an HttpOnly, HMAC-signed
+   session cookie. /api/data refuses to return anything without that cookie,
+   so the data is behind the login rather than merely hidden by this UI.
+   Nothing in this file can be edited in devtools to reach the data.
 
+   The localStorage records below are UI state only (which name to show, the
+   session/device/event lists in the Security panel). They are not the gate —
+   forging them reveals nothing, because the server is asked every time.
+═══════════════════════════════════════ */
 const AUTH = {
   SESSION_HOURS: 8,
-  MAX_ATTEMPTS:  5,
-  LOCKOUT_MIN:   15,
   STORAGE_KEY:    'bp_dash_session',
-  ATTEMPT_KEY:    'bp_dash_attempts',
-  PW_OVERRIDE_KEY:'bp_dash_pw_overrides',
   EVENTS_KEY:     'bp_dash_events',
   SESSIONS_KEY:   'bp_dash_sessions',
   DEVICES_KEY:    'bp_dash_devices',
@@ -4515,22 +4508,6 @@ const AUTH = {
   TFA_KEY:        'bp_dash_2fa',
   EVENT_CAP:      100
 };
-
-function getPwOverrides() {
-  try { return JSON.parse(localStorage.getItem(AUTH.PW_OVERRIDE_KEY) || '{}'); }
-  catch (e) { return {}; }
-}
-function setPwOverride(username, hash) {
-  const map = getPwOverrides();
-  map[username.toLowerCase()] = hash;
-  localStorage.setItem(AUTH.PW_OVERRIDE_KEY, JSON.stringify(map));
-}
-function getEffectivePwHash(username) {
-  const override = getPwOverrides()[username.toLowerCase()];
-  if (override) return override;
-  const user = USERS.find(u => u.username.toLowerCase() === username.toLowerCase());
-  return user ? user.passwordHash : null;
-}
 
 async function sha256(s) {
   const buf = new TextEncoder().encode(s);
@@ -4804,40 +4781,30 @@ function clearSession() {
   document.documentElement.classList.remove('is-authed');
 }
 
-function getAttempts() {
-  try {
-    const raw = localStorage.getItem(AUTH.ATTEMPT_KEY);
-    return raw ? JSON.parse(raw) : { count: 0, lockedUntil: 0 };
-  } catch (e) { return { count: 0, lockedUntil: 0 }; }
-}
-
-function setAttempts(a) { localStorage.setItem(AUTH.ATTEMPT_KEY, JSON.stringify(a)); }
-function resetAttempts() { localStorage.removeItem(AUTH.ATTEMPT_KEY); }
-
+// Credentials are checked by /api/login against server-side env vars; on
+// success the server sets an HttpOnly session cookie the page cannot read.
+// Rate limiting also lives on the server, so clearing localStorage no longer
+// resets the lockout the way the old client-side counter allowed.
 async function attemptLogin(username, password) {
-  const a = getAttempts();
-  if (a.lockedUntil > Date.now()) {
-    const minLeft = Math.ceil((a.lockedUntil - Date.now()) / 60000);
-    throw new Error(`Too many failed attempts. Try again in ${minLeft} min.`);
+  let res, body;
+  try {
+    res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    body = await res.json().catch(() => ({}));
+  } catch (e) {
+    throw new Error('Could not reach the server. Check your connection.');
   }
 
-  const user = USERS.find(u => u.username.toLowerCase() === username.toLowerCase());
-  const expectedHash = getEffectivePwHash(username);
-  const hash = await sha256(password);
-  // Constant-ish behavior: always compute hash even if user is missing
-  if (!user || !expectedHash || hash !== expectedHash) {
-    const newCount = a.count + 1;
-    await logEvent('login', 'fail', { username, note: 'Invalid credentials' });
-    if (newCount >= AUTH.MAX_ATTEMPTS) {
-      setAttempts({ count: 0, lockedUntil: Date.now() + AUTH.LOCKOUT_MIN * 60000 });
-      throw new Error(`Locked for ${AUTH.LOCKOUT_MIN} min after ${AUTH.MAX_ATTEMPTS} failed attempts.`);
-    }
-    setAttempts({ count: newCount, lockedUntil: 0 });
-    throw new Error(`Invalid credentials. ${AUTH.MAX_ATTEMPTS - newCount} attempt${AUTH.MAX_ATTEMPTS - newCount === 1 ? '' : 's'} left.`);
+  if (!res.ok) {
+    await logEvent('login', 'fail', { username, note: body.error || 'Invalid credentials' });
+    throw new Error(body.error || 'Invalid credentials');
   }
-  resetAttempts();
+
   // Password OK — caller (handleLoginSubmit) will check 2FA, then finalize.
-  return user;
+  return { username: body.username || username };
 }
 
 async function finalizeLogin(username) {
@@ -4878,6 +4845,9 @@ function logout() {
   const sess = readJson(AUTH.STORAGE_KEY, null);
   if (sid) revokeSessionById(sid);
   logEvent('logout', 'ok', { username: sess && sess.username }).catch(()=>{});
+  // Ask the server to clear the HttpOnly cookie too — clearing localStorage
+  // alone would leave the real session valid.
+  fetch('/api/logout', { method: 'POST' }).catch(()=>{});
   clearSession();
   // Wipe rendered data so a peek at the source after logout doesn't show anything stale
   STATE.data = null;
@@ -7262,11 +7232,17 @@ function fetchJson(url, timeout) {
   const timer = setTimeout(() => controller.abort(), timeout);
   return fetch(url, { signal: controller.signal })
     .then(res => {
-      if (!res.ok) throw new Error('Request failed (' + res.status + ')');
+      if (!res.ok) {
+        const e = new Error(res.status === 401 ? 'Session expired' : 'Request failed (' + res.status + ')');
+        e.status = res.status;   // callers branch on this (see init's 401 handling)
+        throw e;
+      }
       return res.json();
     })
     .catch(err => {
-      throw new Error(err.name === 'AbortError' ? 'Request timed out' : err.message);
+      if (err.status) throw err;
+      const e = new Error(err.name === 'AbortError' ? 'Request timed out' : err.message);
+      throw e;
     })
     .finally(() => clearTimeout(timer));
 }
@@ -7286,6 +7262,16 @@ async function init(loadingTitle = 'Loading dashboard', loadingSubtext = 'Gettin
     const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setStatus('🟢 Live · ' + t);
   } catch (err) {
+    // A 401 means the session cookie expired or was revoked. Send the user back
+    // to the login screen rather than quietly showing sample numbers that could
+    // be mistaken for real ones.
+    if (err.status === 401) {
+      setDashboardLoading(false);
+      clearSession();
+      STATE.data = null;
+      showLogin();
+      return;
+    }
     console.error('Sheet fetch failed:', err);
     setStatus('⚠ ' + err.message + ' (sample data)', '#f87171');
     renderAll(SAMPLE);
@@ -7485,16 +7471,37 @@ function scheduleSundaySummary() {
   }, 60000);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Always wire login form (works whether logged in or not)
   document.getElementById('loginForm')?.addEventListener('submit', handleLoginSubmit);
 
+  // The server decides whether we are logged in — the localStorage record is
+  // only a hint used to avoid a flash of the login screen. If the cookie is
+  // gone or expired, drop the local record and show the login screen, even if
+  // localStorage still claims an active session.
+  let serverAuthed = false;
+  try {
+    const res = await fetch('/api/session');
+    serverAuthed = res.ok;
+    if (res.ok && !getSession()) {
+      // Valid cookie but no local record (cleared storage, or a second tab) —
+      // rebuild the UI record from what the server reports.
+      const info = await res.json().catch(() => ({}));
+      if (info.username) setSession(info.username);
+    }
+  } catch (e) {
+    // Network failure — fall back to the local hint rather than locking the
+    // user out of a dashboard they may legitimately be signed in to.
+    serverAuthed = !!getSession();
+  }
+
   const session = getSession();
-  if (session) {
+  if (serverAuthed && session) {
     // Rehydrate session/device tracking for existing logins (covers app upgrades
     // that predate the sessions list, and page reloads after a fresh login).
     rehydrateSession(session).finally(enterDashboard);
   } else {
+    if (!serverAuthed) clearSession();
     showLogin();
   }
 });
@@ -9188,15 +9195,30 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ 
 function escJsAttr(s) { return esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")); }
 
 const SEC_CONTENT = {
+  // The password now lives as a scrypt hash in a Vercel environment variable,
+  // which cannot be rewritten from a running request — so this panel explains
+  // the real procedure instead of offering a control that only pretends to work.
   changePassword: () => `
     <div class="sec-modal-title">🔒 Change Password</div>
-    <div class="sec-modal-sub">Update your dashboard password</div>
-    <div class="sec-field sec-field-pw"><label>Current Password</label><input type="password" id="sec_cur_pw" placeholder="••••••••"><button type="button" class="sec-pw-toggle" aria-label="Show password" onclick="secPwToggle(this)">${SEC_PW_EYE_SVG}</button></div>
-    <div class="sec-field sec-field-pw"><label>New Password</label><input type="password" id="sec_new_pw" placeholder="••••••••"><button type="button" class="sec-pw-toggle" aria-label="Show password" onclick="secPwToggle(this)">${SEC_PW_EYE_SVG}</button></div>
-    <div class="sec-field sec-field-pw"><label>Confirm New Password</label><input type="password" id="sec_conf_pw" placeholder="••••••••"><button type="button" class="sec-pw-toggle" aria-label="Show password" onclick="secPwToggle(this)">${SEC_PW_EYE_SVG}</button></div>
+    <div class="sec-modal-sub">Your password is stored on the server, not in this page</div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.65;margin-bottom:14px">
+      Changing it takes three steps:
+      <ol style="margin:10px 0 0 18px;padding:0">
+        <li style="margin-bottom:7px">Run locally:<br>
+          <code style="display:inline-block;margin-top:5px;padding:6px 9px;background:var(--card-elevated);border-radius:6px;font-size:11.5px;user-select:all">node scripts/hash-password.js "new password"</code>
+        </li>
+        <li style="margin-bottom:7px">Copy the printed <code>ADMIN_PASSWORD_HASH=…</code> value into
+          Vercel → Project Settings → Environment Variables.</li>
+        <li>Redeploy. The new password takes effect immediately; existing
+          sessions stay valid until they expire.</li>
+      </ol>
+    </div>
+    <div style="font-size:12px;color:var(--text-secondary);padding:10px;background:var(--card-elevated);border-radius:8px;margin-bottom:14px">
+      The plaintext password is never stored or transmitted anywhere — only its
+      scrypt hash, which cannot be reversed.
+    </div>
     <div class="sec-modal-actions">
-      <button class="sec-btn-cancel" onclick="secModalClose(null,true)">Cancel</button>
-      <button class="sec-btn-primary" onclick="secDoChangePassword()">Update Password</button>
+      <button class="sec-btn-primary" onclick="secModalClose(null,true)">Got it</button>
     </div>`,
 
   twoFactor: () => renderTwoFactorModal(),
@@ -9331,30 +9353,8 @@ function secModalClose(e, force) {
   }
 }
 
-async function secDoChangePassword() {
-  const cur  = document.getElementById('sec_cur_pw')?.value || '';
-  const nw   = document.getElementById('sec_new_pw')?.value || '';
-  const conf = document.getElementById('sec_conf_pw')?.value || '';
-  const session = getSession();
-  if (!session) { showToast('Session expired — please sign in again'); return; }
-  if (!cur) { showToast('Enter your current password'); return; }
-  if (!nw || nw.length < 6) { showToast('New password must be at least 6 characters'); return; }
-  if (nw !== conf) { showToast('Passwords do not match'); return; }
-  if (nw === cur)  { showToast('New password must be different'); return; }
-
-  const expected = getEffectivePwHash(session.username);
-  const curHash  = await sha256(cur);
-  if (!expected || curHash !== expected) {
-    showToast('Current password is incorrect');
-    return;
-  }
-
-  const newHash = await sha256(nw);
-  setPwOverride(session.username, newHash);
-  await logEvent('pw_change', 'ok', { username: session.username });
-  showToast('✓ Password updated successfully');
-  secModalClose(null, true);
-}
+// Password changes happen by rotating the ADMIN_PASSWORD_HASH env var — see
+// the changePassword panel above for the procedure.
 
 /* ── Session/device/history actions ───────────────────── */
 function secRevokeSession(id) {
