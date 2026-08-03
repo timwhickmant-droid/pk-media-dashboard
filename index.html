@@ -4840,14 +4840,16 @@ function hideLogin() {
   document.body.style.overflow = '';
 }
 
-function logout() {
+async function logout() {
   const sid = getCurrentSessionId();
   const sess = readJson(AUTH.STORAGE_KEY, null);
   if (sid) revokeSessionById(sid);
   logEvent('logout', 'ok', { username: sess && sess.username }).catch(()=>{});
-  // Ask the server to clear the HttpOnly cookie too — clearing localStorage
-  // alone would leave the real session valid.
-  fetch('/api/logout', { method: 'POST' }).catch(()=>{});
+  // Await this: location.reload() below aborts in-flight requests, so firing
+  // it without waiting left the HttpOnly cookie intact and the next page load
+  // signed the user straight back in. Clearing localStorage alone is not a
+  // logout — the cookie is the real session.
+  try { await fetch('/api/logout', { method: 'POST' }); } catch (e) { /* clear locally anyway */ }
   clearSession();
   // Wipe rendered data so a peek at the source after logout doesn't show anything stale
   STATE.data = null;
@@ -7407,6 +7409,11 @@ async function showWelcomeThenDashboard() {
 // Returns a promise that resolves when the dashboard data has finished loading.
 function enterDashboard() {
   hideLogin();
+  // The head script normally sets this from localStorage at first paint, and
+  // showWelcomeThenDashboard sets it after a fresh login. Neither has run when
+  // we get here by restoring a session from the server cookie — and without it
+  // .sidebar/.main stay visibility:hidden, so the page renders blank white.
+  document.documentElement.classList.add('is-authed');
   const session = getSession();
   if (session) {
     const lbl = document.getElementById('logoutLabel');
