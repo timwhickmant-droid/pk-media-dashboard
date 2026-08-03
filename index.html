@@ -4493,13 +4493,12 @@ html.theme-light .sidebar-brand-icon {
    who inspects the page. For real security move to Apps Script
    HtmlService + Google login or a real backend with sessions.
 ═══════════════════════════════════════ */
-// Each user has a SHA-256 hash of their password.
-// To generate a hash, paste in browser console: await sha256('yourPassword')
+// Each user has a SHA-256 hash of their password. Never write the plaintext
+// password anywhere in this file (including comments) — it ships to every
+// browser that loads the page, so a comment here is as public as the hash
+// is private. Generate a replacement hash locally and paste only the hash.
 const USERS = [
-  // username: 'admin', password: 'admin123'
-  { username: 'admin', passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9' },
-  // username: 'sayfr', password: 'changeme'
-  { username: 'sayfr', passwordHash: '4cb9c8a8048fd02294477fcb1a41191a20656bd5d1a1c293f8f47e7d44c0bbab' }
+  { username: 'admin', passwordHash: 'abda0a520de8a1aa1482723b7940a6c032c83b58bd65b1a293e2f2b4136aecf4' }
 ];
 
 const AUTH = {
@@ -4889,8 +4888,10 @@ function logout() {
    CONFIG — paste your Apps Script Web App URL here.
    While empty, the dashboard renders SAMPLE data below.
 ═══════════════════════════════════════ */
-const API_URL = 'https://script.google.com/macros/s/AKfycbxu5YBN5W2-Y6TrcNsF_AEZvqYz7zVow7HPkbXOv0XP6riZTqHBH-H8znCkWBIKivxP/exec';
-const FETCH_TIMEOUT_MS = 20000;
+// Same-origin proxy (api/data.js) — the real Apps Script URL and shared
+// secret live only in Vercel env vars, never in this public file.
+const API_URL = '/api/data';
+const FETCH_TIMEOUT_MS = 45000;
 
 /* Sample data — mirrors the JSON shape your Apps Script returns.
    Used as fallback when API_URL is empty or the fetch fails. */
@@ -5159,11 +5160,11 @@ function renderWeeklyDetail(rows) {
     const cpc     = (spend !== null && clicks)  ? spend / clicks  : null;
     const wowCls  = wow === null ? '' : wow >= 0 ? 'wow-up' : 'wow-dn';
     const wowTxt  = wow === null ? '—' : (wow >= 0 ? '+' : '') + wow.toFixed(2) + '%';
-    const noteCell= r.note ? `<span class="note-pill">${r.note}</span>` : '';
+    const noteCell= r.note ? `<span class="note-pill">${esc(r.note)}</span>` : '';
     const pill    = BRAND_PILL[r.brand] || '';
     return `<tr>
-      <td><span class="brand-pill ${pill}">${r.brand}</span></td>
-      <td><span class="plat-tag">${r.platform}</span></td>
+      <td><span class="brand-pill ${pill}">${esc(r.brand)}</span></td>
+      <td><span class="plat-tag">${esc(r.platform)}</span></td>
       <td style="text-align:right">${fmtUSD(spend)}</td>
       <td style="text-align:right">${fmtUSD(revenue)}</td>
       <td style="text-align:right">${fmtInt(clicks)}</td>
@@ -5215,7 +5216,7 @@ function renderWeekTotals(weeklyDetail) {
   tbody.innerHTML = rows.map(r => {
     const pill = BRAND_PILL[r.brand] || '';
     return `<tr>
-      <td><span class="brand-pill ${pill}">${r.brand}</span></td>
+      <td><span class="brand-pill ${pill}">${esc(r.brand)}</span></td>
       <td style="text-align:right">${fmtUSD(r.spend)}</td>
       <td style="text-align:right">${fmtUSD(r.revenue)}</td>
       <td style="text-align:right">${fmtInt(r.clicks)}</td>
@@ -5250,7 +5251,7 @@ function renderMtd(rows) {
     const cpc     = clicks ? spend   / clicks : null;
     const pill = BRAND_PILL[r.brand] || '';
     return `<tr>
-      <td><span class="brand-pill ${pill}">${r.brand}</span></td>
+      <td><span class="brand-pill ${pill}">${esc(r.brand)}</span></td>
       <td style="text-align:right">${fmtUSD(spend)}</td>
       <td style="text-align:right">${fmtUSD(revenue)}</td>
       <td style="text-align:right">${fmtInt(clicks)}</td>
@@ -5314,7 +5315,7 @@ function renderAlerts(viewOrRows) {
     list.innerHTML = items.slice(0, 8).map(a => `
       <div class="alert-item sev-${a.severity}">
         <div class="alert-icon">${a.icon}</div>
-        <div class="alert-body"><span class="pair">${a.pair}</span><span class="msg">${a.msg}</span></div>
+        <div class="alert-body"><span class="pair">${esc(a.pair)}</span><span class="msg">${esc(a.msg)}</span></div>
       </div>
     `).join('');
   }
@@ -5343,7 +5344,7 @@ function renderAlerts(viewOrRows) {
       panelBody.innerHTML = items.slice(0, 8).map(a => `
         <div class="alert-item sev-${a.severity}" style="font-size:13px;margin-bottom:5px;">
           <div class="alert-icon">${a.icon}</div>
-          <div class="alert-body"><span class="pair">${a.pair}</span><span class="msg">${a.msg}</span></div>
+          <div class="alert-body"><span class="pair">${esc(a.pair)}</span><span class="msg">${esc(a.msg)}</span></div>
         </div>
       `).join('');
     }
@@ -5368,7 +5369,7 @@ function renderLeaderboard(weeklyDetail) {
     <div class="leader-row">
       <div class="leader-rank ${medal[i] || ''}">${i + 1}</div>
       <div class="leader-mid">
-        <div class="leader-pair">${r.brand} · ${r.platform}</div>
+        <div class="leader-pair">${esc(r.brand)} · ${esc(r.platform)}</div>
         <div class="leader-sub">${fmtUSD(r._rev)} rev · ${fmtUSD(r._spend)} spend</div>
       </div>
       <div class="leader-roas">${r._roas.toFixed(2)}x</div>
@@ -6499,7 +6500,7 @@ function saveGoals() {
     + (API_URL.includes('?') ? '&' : '?')
     + 'action=save_goals&payload=' + encodeURIComponent(JSON.stringify(payload));
 
-  fetchJsonp(url, 20000)
+  fetchJson(url, 20000)
     .then(res => {
       if (res && res.ok) {
         stat.textContent = `Saved ${res.saved} brand${res.saved === 1 ? '' : 's'} · ${new Date().toLocaleTimeString()}`;
@@ -7099,12 +7100,12 @@ function paintAlertGroup(feedId, countId, items) {
     return;
   }
   feed.innerHTML = items.map(a => {
-    const k = alertKey(a).replace(/"/g, '&quot;');
+    const k = escJsAttr(alertKey(a));
     return `<div class="alert-feed-item">
       <div class="alert-feed-icon">${a.icon || '•'}</div>
       <div class="alert-feed-body">
-        <div class="alert-feed-pair">${a.pair}</div>
-        <div class="alert-feed-msg">${a.msg}</div>
+        <div class="alert-feed-pair">${esc(a.pair)}</div>
+        <div class="alert-feed-msg">${esc(a.msg)}</div>
       </div>
       <button class="alert-feed-dismiss" title="Dismiss" onclick="dismissAlert('${k}')">&times;</button>
     </div>`;
@@ -7254,41 +7255,20 @@ function setDashboardLoading(isLoading) {
   }
 }
 
-function fetchJsonp(url, timeout) {
-  return new Promise((resolve, reject) => {
-    const cbName = 'jsonpCb_' + Date.now();
-    const script = document.createElement('script');
-    let done = false;
-
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      cleanup();
-      reject(new Error('Request timed out'));
-    }, timeout);
-
-    function cleanup() {
-      clearTimeout(timer);
-      delete window[cbName];
-      if (script.parentNode) script.parentNode.removeChild(script);
-    }
-
-    window[cbName] = function(data) {
-      if (done) return;
-      done = true;
-      cleanup();
-      resolve(data);
-    };
-
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = function() {
-      if (done) return;
-      done = true;
-      cleanup();
-      reject(new Error('Failed to load data'));
-    };
-    document.head.appendChild(script);
-  });
+// API_URL is now same-origin (the Vercel proxy), so a plain fetch() works —
+// no CORS issue and no need for JSONP's <script src> injection trick.
+function fetchJson(url, timeout) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  return fetch(url, { signal: controller.signal })
+    .then(res => {
+      if (!res.ok) throw new Error('Request failed (' + res.status + ')');
+      return res.json();
+    })
+    .catch(err => {
+      throw new Error(err.name === 'AbortError' ? 'Request timed out' : err.message);
+    })
+    .finally(() => clearTimeout(timer));
 }
 
 async function init(loadingTitle = 'Loading dashboard', loadingSubtext = 'Getting the latest performance data.') {
@@ -7300,7 +7280,7 @@ async function init(loadingTitle = 'Loading dashboard', loadingSubtext = 'Gettin
     return;
   }
   try {
-    const data = await fetchJsonp(API_URL, FETCH_TIMEOUT_MS);
+    const data = await fetchJson(API_URL, FETCH_TIMEOUT_MS);
     if (data.error) throw new Error(data.error);
     renderAll(data);
     const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -7731,16 +7711,16 @@ function campRenderBanners(rows) {
   let html = '';
   if (attn.length) {
     const pills = attn.slice(0,4).map(r => {
-      const esc = r.name.replace(/'/g,"\\'");
+      const nameAttr = escJsAttr(r.name);
       const reason = r.revenue === 0 ? 'No conversions' : r.roas < 2.5 ? `ROAS ${r.roas?.toFixed(2)}x` : `Rev ↓${Math.abs(r.wow).toFixed(0)}%`;
-      return `<span class="camp-banner-pill attn" onclick="campShowStats('${esc}')">${r.name.split('–')[1]?.trim()||r.name} · ${reason}</span>`;
+      return `<span class="camp-banner-pill attn" onclick="campShowStats('${nameAttr}')">${esc(r.name.split('–')[1]?.trim()||r.name)} · ${esc(reason)}</span>`;
     }).join('');
     html += `<div class="camp-banner attn"><div class="camp-banner-icon">⚠️</div><div><div class="camp-banner-title">${attn.length} campaign${attn.length>1?'s':''} need attention</div><div class="camp-banner-items">${pills}</div></div></div>`;
   }
   if (scale.length) {
     const pills = scale.slice(0,3).map(r => {
-      const esc = r.name.replace(/'/g,"\\'");
-      return `<span class="camp-banner-pill scale" onclick="campShowStats('${esc}')">${r.name.split('–')[1]?.trim()||r.name} · ${r.roas?.toFixed(2)}x ROAS</span>`;
+      const nameAttr = escJsAttr(r.name);
+      return `<span class="camp-banner-pill scale" onclick="campShowStats('${nameAttr}')">${esc(r.name.split('–')[1]?.trim()||r.name)} · ${r.roas?.toFixed(2)}x ROAS</span>`;
     }).join('');
     html += `<div class="camp-banner scale"><div class="camp-banner-icon">🚀</div><div><div class="camp-banner-title">${scale.length} campaign${scale.length>1?'s':''} ready to scale</div><div class="camp-banner-items">${pills}</div></div></div>`;
   }
@@ -7984,7 +7964,7 @@ function campRenderTable() {
 
   const rows = [];
   slice.forEach(r => {
-    const esc       = r.name.replace(/'/g,"\\'");
+    const nameAttr  = escJsAttr(r.name);
     const health    = campCalcHealth(r);
     const tags      = campCalcTags(r);
     const isExpanded = _campExpanded.has(r.name);
@@ -8004,15 +7984,15 @@ function campRenderTable() {
     const cmpLabel   = _effCmp === 'mom' ? 'vs last month' : _effCmp === 'dod' ? 'vs yesterday' : 'vs last week';
     const wowStr     = r.wow != null ? `<span style="font-size:10px;color:${r.wow>=0?'#4ade80':'#f87171'}">${r.wow>=0?'▲':'▼'}${Math.abs(r.wow).toFixed(0)}% ${cmpLabel}</span>` : '';
 
-    rows.push(`<tr class="camp-row-main" onclick="campToggleExpand('${esc}')">
-      <td onclick="event.stopPropagation()"><input type="checkbox" class="camp-row-check" data-name="${r.name}" onchange="campUpdateBulkBar()"></td>
+    rows.push(`<tr class="camp-row-main" onclick="campToggleExpand('${nameAttr}')">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="camp-row-check" data-name="${esc(r.name)}" onchange="campUpdateBulkBar()"></td>
       <td>
-        <div class="camp-name-cell">${r.name} ${isExpanded?'▲':'▼'}</div>
-        <div class="camp-name-sub">${r.objective} · ${r.note || r.platform}</div>
+        <div class="camp-name-cell">${esc(r.name)} ${isExpanded?'▲':'▼'}</div>
+        <div class="camp-name-sub">${esc(r.objective)} · ${esc(r.note || r.platform)}</div>
         ${tagsHtml ? `<div class="camp-perf-tags">${tagsHtml}</div>` : ''}
         ${wowStr}
       </td>
-      <td><span class="camp-plat-logo">${platIcon} ${r.platform}</span></td>
+      <td><span class="camp-plat-logo">${platIcon} ${esc(r.platform)}</span></td>
       <td>${statusChip}</td>
       <td>${objChip}</td>
       <td>${spendStr}</td>
@@ -8024,10 +8004,10 @@ function campRenderTable() {
       <td><span class="camp-health ${health.cls}">${health.emoji} ${health.label}</span></td>
       <td><canvas id="${sparkId}" width="80" height="32" class="camp-trend-spark"></canvas></td>
       <td onclick="event.stopPropagation()"><div class="camp-actions">
-        <button type="button" class="camp-action-btn" title="${r.status==='Active'?'Pause':'Activate'}" onclick="event.stopPropagation();campTogglePause('${esc}')">${r.status==='Active'?'⏸':'▶'}</button>
-        <button type="button" class="camp-action-btn" title="View Insights" onclick="event.stopPropagation();campShowStats('${esc}')">📊</button>
-        <button type="button" class="camp-action-btn" title="Duplicate" onclick="event.stopPropagation();campMenuAction('duplicate');_campMenuName='${esc}'">⧉</button>
-        <button type="button" class="camp-action-btn" title="More options" onclick="event.stopPropagation();campOpenRowMenu(event,'${esc}')">•••</button>
+        <button type="button" class="camp-action-btn" title="${r.status==='Active'?'Pause':'Activate'}" onclick="event.stopPropagation();campTogglePause('${nameAttr}')">${r.status==='Active'?'⏸':'▶'}</button>
+        <button type="button" class="camp-action-btn" title="View Insights" onclick="event.stopPropagation();campShowStats('${nameAttr}')">📊</button>
+        <button type="button" class="camp-action-btn" title="Duplicate" onclick="event.stopPropagation();campMenuAction('duplicate');_campMenuName='${nameAttr}'">⧉</button>
+        <button type="button" class="camp-action-btn" title="More options" onclick="event.stopPropagation();campOpenRowMenu(event,'${nameAttr}')">•••</button>
       </div></td>
     </tr>`);
 
@@ -8042,11 +8022,11 @@ function campRenderTable() {
         <div class="camp-expand-box"><div class="camp-expand-box-label">ROAS</div><div class="camp-expand-box-val" style="color:${exROAS>=4?'#4ade80':exROAS>=2.5?'#fbbf24':'#f87171'}">${exROAS!=null?exROAS.toFixed(2)+'x':'—'}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Avg CPC</div><div class="camp-expand-box-val">${exCPC!=null?'$'+exCPC.toFixed(2):'—'}</div></div>
         <div class="camp-expand-box"><div class="camp-expand-box-label">Health Score</div><div class="camp-expand-box-val">${health.emoji} ${health.score}/100</div></div>
-        <div class="camp-expand-box"><div class="camp-expand-box-label">Platform</div><div class="camp-expand-box-val" style="font-size:14px">${platIcon} ${r.platform}</div></div>
-        ${r.note ? `<div class="camp-expand-box" style="grid-column:1/-1"><div class="camp-expand-box-label">Notes</div><div class="camp-expand-box-val" style="font-size:13px;font-weight:600">📝 ${r.note}</div></div>` : ''}
+        <div class="camp-expand-box"><div class="camp-expand-box-label">Platform</div><div class="camp-expand-box-val" style="font-size:14px">${platIcon} ${esc(r.platform)}</div></div>
+        ${r.note ? `<div class="camp-expand-box" style="grid-column:1/-1"><div class="camp-expand-box-label">Notes</div><div class="camp-expand-box-val" style="font-size:13px;font-weight:600">📝 ${esc(r.note)}</div></div>` : ''}
         <div style="grid-column:1/-1;display:flex;gap:8px">
-          <button class="sec-btn-primary" style="padding:8px 16px;font-size:12px" onclick="campShowStats('${esc}')">📊 Full Stats</button>
-          <button class="sec-btn-cancel" style="padding:8px 16px;font-size:12px" onclick="campTogglePause('${esc}')">${r.status==='Active'?'⏸ Pause':'▶ Activate'}</button>
+          <button class="sec-btn-primary" style="padding:8px 16px;font-size:12px" onclick="campShowStats('${nameAttr}')">📊 Full Stats</button>
+          <button class="sec-btn-cancel" style="padding:8px 16px;font-size:12px" onclick="campTogglePause('${nameAttr}')">${r.status==='Active'?'⏸ Pause':'▶ Activate'}</button>
         </div>
       </div></td></tr>`);
     }
@@ -8210,13 +8190,13 @@ function campRenderBottomCards(rows) {
       const platIcon = PLAT_ICONS[top.platform] || '📍';
       topEl.innerHTML = `
         <div class="camp-top-performer-box">
-          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">${platIcon} ${top.platform}</div>
-          <div class="camp-top-brand">${top.name}</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">${platIcon} ${esc(top.platform)}</div>
+          <div class="camp-top-brand">${esc(top.name)}</div>
           <div class="camp-top-stats">
             <div><div class="camp-top-stat-label">ROAS</div><div class="camp-top-stat-val">${top.roas.toFixed(2)}x</div></div>
             <div><div class="camp-top-stat-label">Revenue</div><div class="camp-top-stat-val blue">$${top.revenue.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
           </div>
-          <button class="camp-view-camp-btn" onclick="campShowStats('${top.name.replace(/'/g,"\\'")}')">View Campaign →</button>
+          <button class="camp-view-camp-btn" onclick="campShowStats('${escJsAttr(top.name)}')">View Campaign →</button>
         </div>`;
     }
   }
@@ -8228,10 +8208,10 @@ function campRenderBottomCards(rows) {
     attnEl.innerHTML = attn.length ? attn.map(r => {
       const reason = r.revenue === 0 ? 'No conversions yet' : r.roas != null && r.roas < 2.5 ? `ROAS below target (${r.roas.toFixed(2)}x)` : `Revenue down ${Math.abs(r.wow).toFixed(0)}% WoW`;
       const sev = r.revenue === 0 || (r.roas != null && r.roas < 1.5) ? 'red' : 'warn';
-      const esc = r.name.replace(/'/g,"\\'");
-      return `<div class="camp-attn-row" style="cursor:pointer" onclick="campShowStats('${esc}')">
+      const nameAttr = escJsAttr(r.name);
+      return `<div class="camp-attn-row" style="cursor:pointer" onclick="campShowStats('${nameAttr}')">
         <div class="camp-attn-dot ${sev}"></div>
-        <div style="flex:1"><div class="camp-attn-name">${r.name}</div><div class="camp-attn-desc">${reason}</div></div>
+        <div style="flex:1"><div class="camp-attn-name">${esc(r.name)}</div><div class="camp-attn-desc">${esc(reason)}</div></div>
         <span style="font-size:11px;color:var(--text-secondary)">›</span>
       </div>`;
     }).join('') : '<div class="camp-no-data" style="padding:10px 0">All campaigns on track ✓</div>';
@@ -8245,10 +8225,10 @@ function campRenderBottomCards(rows) {
       const badge = r.roas >= 5 ? 'high' : 'med';
       const label = r.roas >= 5 ? 'High' : 'Medium';
       const platIcon = PLAT_ICONS[r.platform] || '📍';
-      const esc = r.name.replace(/'/g,"\\'");
-      return `<div class="camp-scale-row" style="cursor:pointer" onclick="campShowStats('${esc}')">
+      const nameAttr = escJsAttr(r.name);
+      return `<div class="camp-scale-row" style="cursor:pointer" onclick="campShowStats('${nameAttr}')">
         <div style="font-size:16px">${platIcon}</div>
-        <div class="camp-scale-body"><div class="camp-scale-name">${r.name}</div><div class="camp-scale-desc">Increase budget by 20%</div></div>
+        <div class="camp-scale-body"><div class="camp-scale-name">${esc(r.name)}</div><div class="camp-scale-desc">Increase budget by 20%</div></div>
         <span class="camp-scale-badge ${badge}">${label}</span>
       </div>`;
     }).join('') : '<div class="camp-no-data" style="padding:10px 0">No scaling opportunities yet</div>';
@@ -8349,7 +8329,7 @@ function commFilteredRows() {
 
 function commNetChip(p) {
   const cls = /awin/i.test(p) ? 'comm-net-awin' : /impact/i.test(p) ? 'comm-net-impact' : '';
-  return `<span class="comm-net-chip ${cls}">${p || '—'}</span>`;
+  return `<span class="comm-net-chip ${cls}">${esc(p) || '—'}</span>`;
 }
 
 function commRenderTable() {
@@ -8385,7 +8365,7 @@ function commRenderTable() {
     breakEl.innerHTML = cards.map(g => {
       const dot = BRAND_DOT[g.brand] || '#94a3b8';
       return `<div class="camp-plat-snap-card comm-break-card">
-        <div class="camp-plat-snap-name"><span class="comm-brand-dot" style="background:${dot}"></span>${g.brand} · ${commNetChip(g.platform)}</div>
+        <div class="camp-plat-snap-name"><span class="comm-brand-dot" style="background:${dot}"></span>${esc(g.brand)} · ${commNetChip(g.platform)}</div>
         <div class="comm-break-val">${fmtUSD(g.commission)}</div>
         <div class="comm-break-meta">${fmtUSD0(g.sales)} sales · ${g.pubs} active publishers</div>
       </div>`;
@@ -8417,7 +8397,7 @@ function commRenderTable() {
   if (container) {
     container.innerHTML = brandOrder.map(brand => {
       const st     = sortStateOf(brand);
-      const bEsc   = brand.replace(/'/g, "\\'");
+      const bEsc   = escJsAttr(brand);
       const rows   = sortRows(byBrand[brand], st);
       const dot    = BRAND_DOT[brand] || '#94a3b8';
       const nets   = [...new Set(rows.map(r => r.platform).filter(Boolean))];
@@ -8430,8 +8410,8 @@ function commRenderTable() {
       const body = rows.map(r => {
         const rt = r.sales > 0 ? ((r.commission / r.sales) * 100).toFixed(1) + '%' : '—';
         return `<tr>
-          <td class="camp-name-cell">${r.username || '—'}</td>
-          <td style="color:var(--text-secondary)">${r.publisherId || '—'}</td>
+          <td class="camp-name-cell">${esc(r.username) || '—'}</td>
+          <td style="color:var(--text-secondary)">${esc(r.publisherId) || '—'}</td>
           <td>${commNetChip(r.platform)}</td>
           <td style="text-align:right">${fmtInt(r.transactions)}</td>
           <td style="text-align:right">${fmtUSD(r.sales)}</td>
@@ -8442,7 +8422,7 @@ function commRenderTable() {
 
       return `<div class="comm-brand-block">
         <div class="comm-brand-head">
-          <div class="comm-brand-title"><span class="comm-brand-dot" style="background:${dot}"></span>${brand} ${nets.map(commNetChip).join(' ')}</div>
+          <div class="comm-brand-title"><span class="comm-brand-dot" style="background:${dot}"></span>${esc(brand)} ${nets.map(commNetChip).join(' ')}</div>
           <div class="comm-brand-stats">${rows.length} publishers · ${active} active · <strong style="color:#4ade80">${fmtUSD(tComm)}</strong></div>
         </div>
         <div class="camp-table-wrap">
@@ -8510,8 +8490,8 @@ function commBuildReportHtml(rows, month) {
     const body = list.map(r => {
       const rt = r.sales > 0 ? ((r.commission / r.sales) * 100).toFixed(1) + '%' : '—';
       return `<tr>
-        <td style="padding:4px 7px;border-bottom:1px solid #eee">${r.username || '—'}</td>
-        <td style="padding:4px 7px;border-bottom:1px solid #eee;color:#666">${r.publisherId || '—'}</td>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee">${esc(r.username) || '—'}</td>
+        <td style="padding:4px 7px;border-bottom:1px solid #eee;color:#666">${esc(r.publisherId) || '—'}</td>
         <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right">${intf(r.transactions)}</td>
         <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right">${money(r.sales)}</td>
         <td style="padding:4px 7px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${money(r.commission)}</td>
@@ -8519,7 +8499,7 @@ function commBuildReportHtml(rows, month) {
       </tr>`;
     }).join('');
     return `<div style="page-break-inside:avoid;margin-top:18px">
-      <h3 style="margin:0 0 5px;font-size:13px;color:#0f3d2e">${DISPLAY_BRAND[brand] || String(brand).toUpperCase()} <span style="font-weight:400;color:#888">· ${nets}</span></h3>
+      <h3 style="margin:0 0 5px;font-size:13px;color:#0f3d2e">${esc(DISPLAY_BRAND[brand] || String(brand).toUpperCase())} <span style="font-weight:400;color:#888">· ${esc(nets)}</span></h3>
       <table style="width:100%;border-collapse:collapse;font-size:10px">
         <thead><tr style="background:#0f3d2e;color:#fff">
           <th style="text-align:left;padding:5px 7px">Publisher</th>
@@ -8819,13 +8799,22 @@ function campSetCol(key, vis) {
 }
 
 /* ── Export CSV ── */
+// Quotes a CSV field and neutralizes formula injection: a leading =, +, -, @,
+// tab, or CR makes Excel/Sheets evaluate the cell as a formula when the file
+// is reopened, so untrusted sheet-sourced text (campaign name, platform) gets
+// a leading apostrophe forced on before quoting. Also escapes embedded quotes.
+function csvCell(v) {
+  let s = String(v == null ? '' : v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
 function campExportCSV() {
   const rows = _campState.filtered;
   if (!rows.length) { showToast('No data to export'); return; }
   const headers = ['Campaign','Platform','Status','Objective','Spend','Revenue','Clicks','ROAS','CPC','CTR'];
   const lines = [headers.join(',')].concat(rows.map(r =>
     [
-      `"${r.name}"`, `"${r.platform}"`, r.status, r.objective,
+      csvCell(r.name), csvCell(r.platform), r.status, r.objective,
       r.spend.toFixed(2), r.revenue.toFixed(2),
       r.clicks != null ? Math.round(r.clicks) : '',
       r.roas != null ? r.roas.toFixed(2) : '',
@@ -8862,8 +8851,8 @@ function campShowStats(name) {
   const cpc  = row.cpc  != null ? '$'+row.cpc.toFixed(2)   : '—';
   const platIcon = PLAT_ICONS[row.platform] || '📍';
   document.getElementById('campModalContent').innerHTML = `
-    <div class="sec-modal-title">${platIcon} ${row.name}</div>
-    <div class="sec-modal-sub">${row.platform} · ${row.status} · ${row.objective}</div>
+    <div class="sec-modal-title">${platIcon} ${esc(row.name)}</div>
+    <div class="sec-modal-sub">${esc(row.platform)} · ${esc(row.status)} · ${esc(row.objective)}</div>
     <div class="camp-stats-grid">
       <div class="camp-stat-box"><div class="camp-stat-box-label">Spend</div><div class="camp-stat-box-val">$${row.spend.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">Revenue</div><div class="camp-stat-box-val" style="color:#4ade80">$${row.revenue.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
@@ -8872,12 +8861,12 @@ function campShowStats(name) {
       <div class="camp-stat-box"><div class="camp-stat-box-label">Clicks</div><div class="camp-stat-box-val" style="color:#60a5fa">${row.clicks != null ? Math.round(row.clicks).toLocaleString() : '—'}</div></div>
       <div class="camp-stat-box"><div class="camp-stat-box-label">CTR</div><div class="camp-stat-box-val">${row.ctr||'—'}${row.ctr?'%':''}</div></div>
     </div>
-    ${row.note ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding:10px;background:var(--card-elevated);border-radius:8px;">📝 ${row.note}</div>` : ''}
+    ${row.note ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding:10px;background:var(--card-elevated);border-radius:8px;">📝 ${esc(row.note)}</div>` : ''}
     <div style="margin-bottom:10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;">Revenue Trend</div>
     <canvas id="campStatsTrendChart" height="70" style="width:100%"></canvas>
     <div class="sec-modal-actions" style="margin-top:16px">
       <button class="sec-btn-cancel" onclick="campOverlayClose(null,true)">Close</button>
-      <button class="sec-btn-primary" onclick="campTogglePause('${name.replace(/'/g,"\\'")}');campOverlayClose(null,true)">${row.status==='Active'?'⏸ Pause Campaign':'▶ Activate Campaign'}</button>
+      <button class="sec-btn-primary" onclick="campTogglePause('${escJsAttr(name)}');campOverlayClose(null,true)">${row.status==='Active'?'⏸ Pause Campaign':'▶ Activate Campaign'}</button>
     </div>`;
   document.getElementById('campOverlay').classList.add('open');
   setTimeout(() => {
@@ -9057,18 +9046,19 @@ function campToggleDatePicker(e) {
   const monthItems = months.map(m => {
     const isActive = _campDateKey === 'month:' + m.month;
     const rev = m.revenue > 0 ? '$' + Math.round(m.revenue).toLocaleString() : '';
-    const safe = m.month.replace(/'/g, "\\'");
+    const safe = escJsAttr(m.month);
     return `<div class="camp-date-option ${isActive?'active':''}" onclick="campSelectMonth('${safe}')">
-      <span>📅 ${m.month}</span><span class="camp-date-range">Full month${rev ? ' · ' + rev : ''}</span>
+      <span>📅 ${esc(m.month)}</span><span class="camp-date-range">Full month${rev ? ' · ' + rev : ''}</span>
     </div>`;
   }).join('');
 
   const weekItems = weeks.map(t => {
     const label = t.week_full ? formatWeekRange(t.week_full) : t.week_label;
     const isActive = _campDateKey === t.week_label;
-    const safeLabel = label.replace(/'/g, "\\'");
-    return `<div class="camp-date-option ${isActive?'active':''}" onclick="campSelectDate('${t.week_label}','${safeLabel}')">
-      <span>${label}</span>
+    const weekKeyAttr = escJsAttr(t.week_label);
+    const safeLabel = escJsAttr(label);
+    return `<div class="camp-date-option ${isActive?'active':''}" onclick="campSelectDate('${weekKeyAttr}','${safeLabel}')">
+      <span>${esc(label)}</span>
     </div>`;
   }).join('');
 
@@ -9192,6 +9182,10 @@ function fmtAbsTime(when) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + time;
 }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+// Safe for embedding untrusted text inside onclick="fn('TEXT')" — escapes the
+// JS string-literal delimiter first, then HTML-escapes the whole attribute
+// value so a stray `"` in the source data can't break out of the attribute.
+function escJsAttr(s) { return esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")); }
 
 const SEC_CONTENT = {
   changePassword: () => `

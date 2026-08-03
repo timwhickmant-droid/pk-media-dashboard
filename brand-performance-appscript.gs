@@ -24,6 +24,23 @@ const GOALS_SHEET_NAME    = 'Goals';
 const GOAL_HEADERS        = ['brand','monthly_revenue_target','monthly_spend_cap','target_roas','roas_floor'];
 const DEFAULT_GOAL_BRANDS = ['Greenroads','Cannabis Life','HempBombs','Mystic Labs'];
 
+// How many of the most recent "MMM YYYY" tabs to include in the historical
+// trend/allRows feed. Without this cap, doGet() re-reads every month tab that
+// has ever existed on every request, and it only gets slower as tabs pile up.
+const MAX_HISTORY_MONTHS = 12;
+
+// Seconds to serve a cached copy of the built payload before recomputing.
+// Cuts response time from ~seconds/minutes (cold read across two spreadsheets)
+// down to milliseconds for repeat loads within the window.
+const CACHE_TTL_SECONDS = 180;
+
+const MONTHS = {
+  jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
+  jul:6, aug:7, sep:8, oct:9, nov:10, dec:11,
+  january:0, february:1, march:2, april:3, june:5,
+  july:6, august:7, september:8, october:9, november:10, december:11
+};
+
 const BRAND_ALIAS = {
   'Hemp Bombs':    'HempBombs',
   'HempBombs':     'HempBombs',
@@ -37,8 +54,24 @@ const BRAND_ALIAS = {
 
 function doGet(e) {
   try {
+    // Require a shared secret on every request, set as a Script Property (Project
+    // Settings > Script Properties), never in this source file. Requests reach
+    // here only through the Vercel proxy (api/data.js), which attaches the secret
+    // server-side — the browser never sees this URL or the secret directly.
+    var expectedSecret = PropertiesService.getScriptProperties().getProperty('SHARED_SECRET');
+    var providedSecret  = e && e.parameter && e.parameter.secret;
+    if (!expectedSecret || providedSecret !== expectedSecret) {
+      return json({ error: 'Unauthorized' }, e);
+    }
+
     if (e && e.parameter && e.parameter.action === 'save_goals') {
       return json(saveGoals(e), e);
+    }
+
+    var noCache = e && e.parameter && e.parameter.nocache === '1';
+    if (!noCache) {
+      var cached = cacheGetPayload();
+      if (cached) return jsonRaw(cached, e);
     }
 
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -54,12 +87,24 @@ function doGet(e) {
     var payload    = buildPayload(latestRows);
     payload.meta.source_tab = latestSh.getName();
 
-    // All month tabs for historical trend
-    var allRows = [];
+    // All month tabs for historical trend, capped to the most recent
+    // MAX_HISTORY_MONTHS so this stays bounded as more tabs get added over time.
+    var monthSheets = [];
     ss.getSheets().forEach(function(sh) {
       var m = sh.getName().trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
       if (!m) return;
-      readRows(sh).forEach(function(r) { allRows.push(r); });
+      var mIdx = MONTHS[m[1].toLowerCase()];
+      if (mIdx === undefined) return;
+      monthSheets.push({ sh: sh, key: parseInt(m[2], 10) * 12 + mIdx });
+    });
+    monthSheets.sort(function(a, b) { return a.key - b.key; });
+    if (monthSheets.length > MAX_HISTORY_MONTHS) {
+      monthSheets = monthSheets.slice(monthSheets.length - MAX_HISTORY_MONTHS);
+    }
+
+    var allRows = [];
+    monthSheets.forEach(function(o) {
+      readRows(o.sh).forEach(function(r) { allRows.push(r); });
     });
 
     // Group by week across all months
@@ -110,7 +155,9 @@ function doGet(e) {
     }
 
     payload.generatedAt = new Date().toISOString();
-    return json(payload, e);
+    var str = JSON.stringify(payload);
+    cachePutPayload(str);
+    return jsonRaw(str, e);
 
   } catch (err) {
     return json({ error: err.message, stack: err.stack }, e);
@@ -120,17 +167,11 @@ function doGet(e) {
 // Sheet picker
 
 function pickLatestMonthSheet(ss) {
-  var months = {
-    jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
-    jul:6, aug:7, sep:8, oct:9, nov:10, dec:11,
-    january:0, february:1, march:2, april:3, june:5,
-    july:6, august:7, september:8, october:9, november:10, december:11
-  };
   var best = null, bestKey = -1;
   ss.getSheets().forEach(function(sh) {
     var m = sh.getName().trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
     if (!m) return;
-    var mIdx = months[m[1].toLowerCase()];
+    var mIdx = MONTHS[m[1].toLowerCase()];
     if (mIdx === undefined) return;
     var key = parseInt(m[2], 10) * 12 + mIdx;
     if (key > bestKey) { bestKey = key; best = sh; }
@@ -141,9 +182,7 @@ function pickLatestMonthSheet(ss) {
 // Row reader
 
 function readRows(sh) {
-  var range   = sh.getDataRange();
-  var values  = range.getValues();
-  var display = range.getDisplayValues();
+  var values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
 
   var headers = values[0].map(function(h) { return String(h).trim(); });
@@ -160,6 +199,13 @@ function readRows(sh) {
     note:     find(headers, /^notes?$/i)
   };
 
+  var numRows = values.length - 1;
+  // Only these two columns ever need display-formatted text (dates/percents);
+  // reading them as narrow single-column ranges instead of a second full-range
+  // getDisplayValues() call roughly halves the sheet I/O for this function.
+  var weekDisplay = idx.week >= 0 ? sh.getRange(2, idx.week + 1, numRows, 1).getDisplayValues() : null;
+  var wowDisplay  = idx.wow  >= 0 ? sh.getRange(2, idx.wow  + 1, numRows, 1).getDisplayValues() : null;
+
   var out = [];
   for (var i = 1; i < values.length; i++) {
     var row = values[i];
@@ -169,8 +215,9 @@ function readRows(sh) {
     var platform = idx.platform >= 0 ? String(row[idx.platform] || '').trim() : '';
     if (EXCLUDED_PLATFORMS.indexOf(platform.toLowerCase()) !== -1) continue; // drop excluded platforms
 
+    var di = i - 1;
     out.push({
-      week:        normalizeWeek(idx.week >= 0 ? (display[i][idx.week] || row[idx.week]) : ''),
+      week:        normalizeWeek(idx.week >= 0 ? (weekDisplay[di][0] || row[idx.week]) : ''),
       brand:       normalizeBrand(brand),
       platform:    platform,
       spend:       toNum(idx.spend   >= 0 ? row[idx.spend]   : null),
@@ -178,7 +225,7 @@ function readRows(sh) {
       clicks:      toNum(idx.clicks  >= 0 ? row[idx.clicks]  : null),
       roas:        toNum(idx.roas    >= 0 ? row[idx.roas]    : null),
       cpc:         toNum(idx.cpc     >= 0 ? row[idx.cpc]     : null),
-      wow:         parsePct(idx.wow  >= 0 ? (display[i][idx.wow] || row[idx.wow]) : null),
+      wow:         parsePct(idx.wow  >= 0 ? (wowDisplay[di][0] || row[idx.wow]) : null),
       note:        idx.note >= 0 ? String(row[idx.note] || '').trim() : ''
     });
   }
@@ -361,9 +408,7 @@ function readCommission() {
     var platMatch = name.match(/^([A-Za-z.]+)\b/);
     var platform  = platMatch ? normalizeAffPlatform(platMatch[1]) : '';
 
-    var range   = sh.getDataRange();
-    var values  = range.getValues();
-    var display = range.getDisplayValues();
+    var values = sh.getDataRange().getValues();
     if (values.length < 2) return;
 
     var headers = values[0].map(function(h) { return String(h).trim(); });
@@ -377,6 +422,9 @@ function readCommission() {
       comm:     find(headers, /commission/i)
     };
 
+    var numRows = values.length - 1;
+    var dateDisplay = idx.date >= 0 ? sh.getRange(2, idx.date + 1, numRows, 1).getDisplayValues() : null;
+
     for (var i = 1; i < values.length; i++) {
       var row = values[i];
       var firstCell = String(row[0] || '').trim().toLowerCase();
@@ -386,7 +434,7 @@ function readCommission() {
       if (!brandRaw) continue;
 
       out.push({
-        monthKey:     affMonthKey(idx.date >= 0 ? (display[i][idx.date] || row[idx.date]) : '', tabMonth),
+        monthKey:     affMonthKey(idx.date >= 0 ? (dateDisplay[i - 1][0] || row[idx.date]) : '', tabMonth),
         platform:     platform,
         brand:        normalizeAffBrand(brandRaw),
         publisherId:  idx.pubId    >= 0 ? String(row[idx.pubId] || '').trim() : '',
@@ -440,8 +488,11 @@ function capitalize(w) {
 }
 
 function json(obj, e) {
-  var str = JSON.stringify(obj);
-  var cb  = e && e.parameter && e.parameter.callback;
+  return jsonRaw(JSON.stringify(obj), e);
+}
+
+function jsonRaw(str, e) {
+  var cb = e && e.parameter && e.parameter.callback;
   if (cb) {
     return ContentService
       .createTextOutput(cb + '(' + str + ')')
@@ -450,6 +501,60 @@ function json(obj, e) {
   return ContentService
     .createTextOutput(str)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Payload cache
+//
+// CacheService values are capped at 100KB each, so the built JSON string is
+// split across multiple keys. A missing/expired chunk is treated as a full
+// cache miss and falls back to a live rebuild.
+
+var CACHE_CHUNK_SIZE = 90000;
+
+function cacheGetPayload() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var meta  = cache.get('payload_meta');
+    if (!meta) return null;
+    var n = JSON.parse(meta).n;
+    var chunks = [];
+    for (var i = 0; i < n; i++) {
+      var c = cache.get('payload_chunk_' + i);
+      if (c === null) return null;
+      chunks.push(c);
+    }
+    return chunks.join('');
+  } catch (err) {
+    return null;
+  }
+}
+
+function invalidatePayloadCache() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var meta  = cache.get('payload_meta');
+    if (!meta) return;
+    var n = JSON.parse(meta).n;
+    var keys = ['payload_meta'];
+    for (var i = 0; i < n; i++) keys.push('payload_chunk_' + i);
+    cache.removeAll(keys);
+  } catch (err) {
+    // best-effort — a stale cache entry will simply expire on its own via CACHE_TTL_SECONDS
+  }
+}
+
+function cachePutPayload(str) {
+  try {
+    var n = Math.ceil(str.length / CACHE_CHUNK_SIZE);
+    if (n > 20) return; // too large to cache sensibly — skip, don't fail the request
+    var cache = CacheService.getScriptCache();
+    for (var i = 0; i < n; i++) {
+      cache.put('payload_chunk_' + i, str.substr(i * CACHE_CHUNK_SIZE, CACHE_CHUNK_SIZE), CACHE_TTL_SECONDS);
+    }
+    cache.put('payload_meta', JSON.stringify({ n: n }), CACHE_TTL_SECONDS);
+  } catch (err) {
+    // Cache failures shouldn't break the response — the payload was already returned live.
+  }
 }
 
 // Goals
@@ -514,6 +619,7 @@ function saveGoals(e) {
     sh.getRange(1, 1, 1, GOAL_HEADERS.length).setValues([GOAL_HEADERS]).setFontWeight('bold');
     if (rows.length) sh.getRange(2, 1, rows.length, GOAL_HEADERS.length).setValues(rows);
 
+    invalidatePayloadCache();
     return { ok: true, saved: rows.length, savedAt: new Date().toISOString() };
   } catch (err) {
     return { ok: false, error: err.message };
