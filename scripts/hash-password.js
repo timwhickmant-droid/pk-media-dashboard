@@ -24,6 +24,11 @@ if (password.length < 12) {
 const salt = crypto.randomBytes(16);
 const hash = crypto.scryptSync(password, salt, 64);
 
-console.log('\nADMIN_PASSWORD_HASH=scrypt:' + salt.toString('hex') + ':' + hash.toString('hex') + '\n');
-console.log('Also generate a SESSION_SECRET if you have not already:');
-console.log('SESSION_SECRET=' + crypto.randomBytes(32).toString('hex') + '\n');
+// Print bare values, one per line. Vercel wants the value only — including the
+// "NAME=" prefix or wrapping quotes in the value box makes the hash unparseable
+// and every login fails with a plain "Invalid credentials".
+console.log('\nPaste each value on its own — do NOT include the name or any quotes.\n');
+console.log('ADMIN_PASSWORD_HASH  (value below)');
+console.log('scrypt:' + salt.toString('hex') + ':' + hash.toString('hex') + '\n');
+console.log('SESSION_SECRET  (value below, only if you have not set one yet)');
+console.log(crypto.randomBytes(32).toString('hex') + '\n');
