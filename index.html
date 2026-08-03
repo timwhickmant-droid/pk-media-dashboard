@@ -2202,7 +2202,7 @@ html.is-authed.is-loading .dashboard-loading {
   opacity: 1;
 }
 .welcome-screen[hidden] { display: none; }
-.welcome-screen.exiting { animation: welcomeOut 0.55s ease forwards; }
+.welcome-screen.exiting { animation: welcomeOut 0.35s ease forwards; }
 @keyframes welcomeOut { to { opacity: 0; } }
 
 /* Animated background blobs */
@@ -7126,7 +7126,11 @@ async function manualRefresh() {
   if (label) label.textContent = 'Refreshing...';
   setDashboardLoading(true);
   try {
-    await Promise.all([init(), new Promise(r => setTimeout(r, 900))]);
+    // force=true so Refresh actually re-reads the sheets past the backend cache.
+    await Promise.all([
+      init('Loading dashboard', 'Getting the latest performance data.', true),
+      new Promise(r => setTimeout(r, 400))
+    ]);
   } finally {
     if (btn) { btn.classList.remove('spinning'); btn.disabled = false; btn.removeAttribute('aria-busy'); }
     if (label) label.textContent = 'Refresh';
@@ -7247,7 +7251,9 @@ function fetchJson(url, timeout) {
     .finally(() => clearTimeout(timer));
 }
 
-async function init(loadingTitle = 'Loading dashboard', loadingSubtext = 'Getting the latest performance data.') {
+// force=true bypasses the backend's response cache — used by the Refresh button
+// so it genuinely re-reads the sheets rather than returning the cached payload.
+async function init(loadingTitle = 'Loading dashboard', loadingSubtext = 'Getting the latest performance data.', force = false) {
   setDashboardLoading(true, loadingTitle, loadingSubtext);
   if (!API_URL) {
     setStatus('📋 Sample data', '#fbbf24');
@@ -7256,7 +7262,8 @@ async function init(loadingTitle = 'Loading dashboard', loadingSubtext = 'Gettin
     return;
   }
   try {
-    const data = await fetchJson(API_URL, FETCH_TIMEOUT_MS);
+    const url = force ? API_URL + '?nocache=1' : API_URL;
+    const data = await fetchJson(url, FETCH_TIMEOUT_MS);
     if (data.error) throw new Error(data.error);
     renderAll(data);
     const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -7377,7 +7384,10 @@ async function showWelcomeThenDashboard() {
 
   // Kick off dashboard initialization + data fetch IN PARALLEL with the welcome screen
   const dataReady   = enterDashboard();           // returns a promise resolving after data renders
-  const minDisplay  = new Promise(r => setTimeout(r, 1800));  // floor so user sees the welcome
+  // Short floor purely to avoid a jarring one-frame flash of the welcome screen.
+  // Kept small: when the data is ready sooner, every extra ms here is dead time
+  // the user spends looking at a splash instead of the dashboard.
+  const minDisplay  = new Promise(r => setTimeout(r, 400));
 
   // Wait until BOTH conditions are met: data is fully loaded AND min display time elapsed
   try {
@@ -7387,14 +7397,11 @@ async function showWelcomeThenDashboard() {
     if (subEl) subEl.textContent = 'Loaded with sample data';
   }
 
-  // Brief 200ms beat so the user perceives "Ready", then fade out
-  await new Promise(r => setTimeout(r, 200));
-
   welcome.classList.add('exiting');
   setTimeout(() => {
     welcome.hidden = true;
     welcome.classList.remove('exiting');
-  }, 550);
+  }, 350);
 }
 
 // Returns a promise that resolves when the dashboard data has finished loading.

@@ -30,9 +30,12 @@ const DEFAULT_GOAL_BRANDS = ['Greenroads','Cannabis Life','HempBombs','Mystic La
 const MAX_HISTORY_MONTHS = 12;
 
 // Seconds to serve a cached copy of the built payload before recomputing.
-// Cuts response time from ~seconds/minutes (cold read across two spreadsheets)
-// down to milliseconds for repeat loads within the window.
-const CACHE_TTL_SECONDS = 180;
+// Cuts response time from ~seconds (cold read across two spreadsheets) down to
+// milliseconds. The source sheets are updated weekly, so a 3-minute window meant
+// nearly every visit paid full price; 30 minutes makes cache hits the norm
+// without letting data go meaningfully stale. The dashboard's Refresh button
+// sends nocache=1 to bypass this, and saving goals clears it immediately.
+const CACHE_TTL_SECONDS = 1800;
 
 const MONTHS = {
   jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
