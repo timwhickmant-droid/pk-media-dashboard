@@ -480,7 +480,18 @@ body {
 .sidebar-brand-icon {
   width: 56px;
   height: 56px;
-  background: url('logo.png') #000 center/contain no-repeat;
+  /* logo.png is 500x500 but the artwork does not reach the edges — it sits at
+     x 25-499, y 21-449, leaving a black margin (left 25, right 0, top 21,
+     bottom 50). With `contain` that margin rendered as dead space inside the
+     container. These values scale the image so the artwork alone fills the box
+     and shift it so the margin falls outside:
+       width  500/475 = 105.263%   height 500/429 = 116.550%
+       x 100%  — artwork already touches the right edge, so right-align it
+       y 29.6% — 21/(21+50), the top margin's share of the total
+     Percentages rather than px so this holds if the container is ever resized. */
+  background: url('logo.png') #000 no-repeat;
+  background-size: 105.263% 116.550%;
+  background-position: 100% 29.6%;
   border-radius: 0;
   display: block;
   flex-shrink: 0;
