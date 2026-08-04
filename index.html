@@ -380,9 +380,24 @@ body {
   display: flex; flex-direction: column;
   position: fixed; top:0; left:0; bottom:0;
   z-index: 200;
-  overflow: hidden;
+  /* overflow-y must scroll, not hide: the brand-filter items below Settings sit
+     past the fold on shorter viewports and were being clipped away entirely
+     with no way to reach them. x stays hidden so labels can't bleed sideways. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
   transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.28s ease;
 }
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.18);
+  border-radius: 3px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+html.theme-light .sidebar { scrollbar-color: rgba(0,0,0,0.2) transparent; }
+html.theme-light .sidebar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); }
 .sidebar:hover {
   width: var(--sidebar-w-expand);
   box-shadow: 8px 0 32px rgba(0,0,0,0.5);
@@ -478,19 +493,20 @@ body {
   flex-shrink: 0;
 }
 .sidebar-brand-icon {
-  width: 56px;
-  height: 56px;
+  /* Fills the sidebar width rather than sitting as a small fixed square. */
+  width: 100%;
+  height: auto;
   /* logo.png is 500x500 but the artwork does not reach the edges — it sits at
      x 25-499, y 21-449, leaving a black margin (left 25, right 0, top 21,
-     bottom 50). With `contain` that margin rendered as dead space inside the
-     container. These values scale the image so the artwork alone fills the box
-     and shift it so the margin falls outside:
-       width  500/475 = 105.263%   height 500/429 = 116.550%
-       x 100%  — artwork already touches the right edge, so right-align it
-       y 29.6% — 21/(21+50), the top margin's share of the total
-     Percentages rather than px so this holds if the container is ever resized. */
+     bottom 50). Matching the box to the artwork's own 475:429 ratio means it
+     fills edge-to-edge with no dead space AND no stretching. */
+  aspect-ratio: 475 / 429;
+  /* 500/475 = 105.263% scales the artwork to span the width; `auto` keeps the
+     height proportional, so the scale stays uniform (no distortion).
+       x 100%  — artwork already touches the image's right edge, so right-align
+       y 29.6% — 21/(21+50), the top margin's share of the total vertical margin */
   background: url('logo.png') #000 no-repeat;
-  background-size: 105.263% 116.550%;
+  background-size: 105.263% auto;
   background-position: 100% 29.6%;
   border-radius: 0;
   display: block;
@@ -2827,8 +2843,9 @@ body {
   gap: 0 !important;
 }
 .sidebar-brand-icon {
-  width: 56px;
-  height: 56px;
+  /* Sizing comes from the base rule (full sidebar width, 475:429). This block
+     only adds the treatment — it must not reintroduce a fixed square here or
+     it would override that and shrink the logo back down. */
   border-radius: 0;
   box-shadow: 0 0 24px rgba(99,102,241,0.45);
   position: relative;
