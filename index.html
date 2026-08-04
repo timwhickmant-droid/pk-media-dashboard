@@ -496,18 +496,11 @@ html.theme-light .sidebar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2)
   /* Fills the sidebar width rather than sitting as a small fixed square. */
   width: 100%;
   height: auto;
-  /* logo.png is 500x500 but the artwork does not reach the edges — it sits at
-     x 25-499, y 21-449, leaving a black margin (left 25, right 0, top 21,
-     bottom 50). Matching the box to the artwork's own 475:429 ratio means it
-     fills edge-to-edge with no dead space AND no stretching. */
-  aspect-ratio: 475 / 429;
-  /* 500/475 = 105.263% scales the artwork to span the width; `auto` keeps the
-     height proportional, so the scale stays uniform (no distortion).
-       x 100%  — artwork already touches the image's right edge, so right-align
-       y 29.6% — 21/(21+50), the top margin's share of the total vertical margin */
-  background: url('logo.png') #000 no-repeat;
-  background-size: 105.263% auto;
-  background-position: 100% 29.6%;
+  /* logo.png is 500x500, so a square box shows it whole with nothing cropped
+     and nothing stretched. Its own black margin is part of the artwork and
+     sits flush against the container's black background. */
+  aspect-ratio: 1 / 1;
+  background: url('logo.png') #000 center/contain no-repeat;
   border-radius: 0;
   display: block;
   flex-shrink: 0;
