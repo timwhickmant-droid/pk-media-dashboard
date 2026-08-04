@@ -9234,10 +9234,11 @@ const SEC_CONTENT = {
       Changing it takes three steps:
       <ol style="margin:10px 0 0 18px;padding:0">
         <li style="margin-bottom:7px">Run locally:<br>
-          <code style="display:inline-block;margin-top:5px;padding:6px 9px;background:var(--card-elevated);border-radius:6px;font-size:11.5px;user-select:all">node scripts/hash-password.js "new password"</code>
+          <code style="display:inline-block;margin-top:5px;padding:6px 9px;background:var(--card-elevated);border-radius:6px;font-size:11.5px;user-select:all">node scripts/add-user.js &lt;username&gt; "new password"</code>
         </li>
-        <li style="margin-bottom:7px">Copy the printed <code>ADMIN_PASSWORD_HASH=…</code> value into
-          Vercel → Project Settings → Environment Variables.</li>
+        <li style="margin-bottom:7px">Paste the printed value into Vercel →
+          Project Settings → Environment Variables as <code>DASHBOARD_USERS</code>,
+          keeping every other account in the same array.</li>
         <li>Redeploy. The new password takes effect immediately; existing
           sessions stay valid until they expire.</li>
       </ol>

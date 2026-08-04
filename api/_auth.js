@@ -97,6 +97,57 @@ function getSession(req) {
   return verifyToken(parseCookies(req)[COOKIE_NAME], secret);
 }
 
+// Builds the account list from environment variables.
+//
+// Two sources, merged:
+//   DASHBOARD_USERS  JSON array: [{"username":"Gina","hash":"scrypt:..."}]
+//   ADMIN_USERNAME + ADMIN_PASSWORD_HASH   the original single-account pair
+//
+// Keeping both means adding accounts never requires re-hashing the existing
+// admin password, and a half-finished migration cannot lock everyone out.
+function loadUsers() {
+  const users = [];
+
+  const raw = process.env.DASHBOARD_USERS;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(function (u) {
+          if (u && u.username && u.hash) {
+            users.push({ username: String(u.username), hash: String(u.hash) });
+          }
+        });
+      }
+    } catch (e) {
+      // Malformed JSON must not silently drop every account defined here, but
+      // it also must not throw — fall through to the admin pair below.
+    }
+  }
+
+  const adminUser = process.env.ADMIN_USERNAME;
+  const adminHash = process.env.ADMIN_PASSWORD_HASH;
+  if (adminUser && adminHash) {
+    const dup = users.some(function (u) {
+      return u.username.toLowerCase() === adminUser.toLowerCase();
+    });
+    // DASHBOARD_USERS wins on conflict, so an account can be overridden there.
+    if (!dup) users.push({ username: adminUser, hash: adminHash });
+  }
+
+  return users;
+}
+
+function findUser(users, username) {
+  const wanted = String(username || '').trim().toLowerCase();
+  return users.find(function (u) { return u.username.toLowerCase() === wanted; }) || null;
+}
+
+// A syntactically valid hash that no password matches. Verifying against this
+// when the username is unknown keeps the response time comparable to a real
+// lookup, so timing does not reveal which accounts exist.
+const DUMMY_HASH = 'scrypt:' + '0'.repeat(32) + ':' + '0'.repeat(128);
+
 // Verifies a password against a stored "scrypt:<saltHex>:<hashHex>" string.
 // scrypt is a deliberately slow KDF, so a leaked hash is far more expensive to
 // crack than the plain SHA-256 this replaced.
@@ -159,5 +210,6 @@ module.exports = {
   signToken, verifyToken, getSession,
   sessionCookie, clearCookie,
   verifyPassword, safeEqual,
+  loadUsers, findUser, DUMMY_HASH,
   checkRateLimit, recordFailure, clearFailures
 };

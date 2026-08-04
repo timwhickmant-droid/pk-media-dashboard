@@ -14,11 +14,10 @@ module.exports = async (req, res) => {
   }
 
   const sessionSecret = process.env.SESSION_SECRET;
-  const adminUser     = process.env.ADMIN_USERNAME;
-  const adminHash     = process.env.ADMIN_PASSWORD_HASH;
+  const users         = auth.loadUsers();
 
-  if (!sessionSecret || !adminUser || !adminHash) {
-    res.status(500).json({ error: 'Server misconfigured: missing SESSION_SECRET, ADMIN_USERNAME or ADMIN_PASSWORD_HASH' });
+  if (!sessionSecret || !users.length) {
+    res.status(500).json({ error: 'Server misconfigured: missing SESSION_SECRET, or no accounts in DASHBOARD_USERS / ADMIN_USERNAME+ADMIN_PASSWORD_HASH' });
     return;
   }
 
@@ -35,18 +34,20 @@ module.exports = async (req, res) => {
   const username = String((body && body.username) || '').trim();
   const password = String((body && body.password) || '');
 
-  const userOk = auth.safeEqual(username.toLowerCase(), adminUser.toLowerCase());
-  // Always run the KDF, even when the username is wrong, so response timing
+  const match = auth.findUser(users, username);
+  // Always run the KDF, even when the username is unknown, so response timing
   // does not reveal whether an account exists.
-  const passOk = await auth.verifyPassword(password, adminHash);
+  const passOk = await auth.verifyPassword(password, match ? match.hash : auth.DUMMY_HASH);
 
-  if (!userOk || !passOk) {
+  if (!match || !passOk) {
     auth.recordFailure(req);
     res.status(401).json({ error: 'Invalid credentials' });
     return;
   }
 
   auth.clearFailures(req);
-  res.setHeader('Set-Cookie', auth.sessionCookie(auth.signToken(adminUser, sessionSecret)));
-  res.status(200).json({ ok: true, username: adminUser });
+  // Sign the stored spelling, not what was typed, so the session carries a
+  // canonical username regardless of how it was capitalised at the prompt.
+  res.setHeader('Set-Cookie', auth.sessionCookie(auth.signToken(match.username, sessionSecret)));
+  res.status(200).json({ ok: true, username: match.username });
 };
