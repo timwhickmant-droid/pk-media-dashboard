@@ -462,6 +462,78 @@ function readCommission() {
     }
   });
 
+  out = replaceCommissionRowsFromClientReport(out, {
+    spreadsheetId: GREEN_ROADS_COMMISSION_SPREADSHEET_ID,
+    brand: 'Greenroads',
+    reportBrandName: 'GREEN ROADS',
+    platform: 'AWIN'
+  });
+
+  out = replaceCommissionRowsFromClientReport(out, {
+    spreadsheetId: MYSTIC_LABS_COMMISSION_SPREADSHEET_ID,
+    brand: 'Mystic Labs',
+    reportBrandName: 'MYSTIC LABS',
+    platform: 'Impact'
+  });
+
+  return out;
+}
+
+function replaceCommissionRowsFromClientReport(rows, config) {
+  var clientRows = readClientCommissionReport(config);
+  if (!clientRows.length) return rows;
+  return rows.filter(function(r) { return r.brand !== config.brand; }).concat(clientRows);
+}
+
+// Reads a client-facing brand commission workbook with month tabs like
+// "JUNE 2026" and rows in DATE/BRAND/PUBLISHER ID/USERNAME/... format.
+function readClientCommissionReport(config) {
+  var ss = SpreadsheetApp.openById(config.spreadsheetId);
+  var out = [];
+
+  ss.getSheets().forEach(function(sh) {
+    var sheetName = sh.getName().trim();
+    if (!sheetName.match(/^([A-Za-z]+)\s+(\d{4})$/)) return;
+
+    var values = sh.getDataRange().getValues();
+    if (values.length < 2) return;
+
+    var headers = values[0].map(function(h) { return String(h).trim(); });
+    var idx = {
+      date:     find(headers, /^date$/i),
+      brand:    find(headers, /^brand$/i),
+      pubId:    find(headers, /publisher\s*id|media\s*partner\s*id|partner\s*id|^publisher$/i),
+      username: find(headers, /user\s*name|publisher\s*name|username/i),
+      trans:    find(headers, /transaction/i),
+      sales:    find(headers, /^sales$/i),
+      comm:     find(headers, /commission/i)
+    };
+
+    var numRows = values.length - 1;
+    var dateDisplay = idx.date >= 0 ? sh.getRange(2, idx.date + 1, numRows, 1).getDisplayValues() : null;
+
+    for (var i = 1; i < values.length; i++) {
+      var row = values[i];
+      var firstCell = String(row[0] || '').trim().toLowerCase();
+      if (!firstCell || firstCell === 'total') continue;
+
+      var brandRaw = idx.brand >= 0 ? String(row[idx.brand] || '').trim() : config.reportBrandName;
+      var brand = normalizeAffBrand(brandRaw || config.reportBrandName);
+      if (brand !== config.brand) continue;
+
+      out.push({
+        monthKey:     affMonthKey(idx.date >= 0 ? (dateDisplay[i - 1][0] || row[idx.date]) : '', sheetName),
+        platform:     config.platform,
+        brand:        config.brand,
+        publisherId:  idx.pubId    >= 0 ? String(row[idx.pubId] || '').trim() : '',
+        username:     idx.username >= 0 ? String(row[idx.username] || '').trim() : '',
+        transactions: toNum(idx.trans >= 0 ? row[idx.trans] : null) || 0,
+        sales:        toNum(idx.sales >= 0 ? row[idx.sales] : null) || 0,
+        commission:   toNum(idx.comm  >= 0 ? row[idx.comm]  : null) || 0
+      });
+    }
+  });
+
   return out;
 }
 
@@ -494,7 +566,10 @@ function affMonthKey(dateVal, tabMonth) {
   var s = String(dateVal || '').trim();
   var m = s.match(/^([A-Za-z]+)\s+(\d{4})$/);
   if (m) return capitalize(m[1]) + ' ' + m[2];
-  if (tabMonth) return capitalize(tabMonth) + ' ' + (new Date()).getFullYear();
+  var tm = String(tabMonth || '').trim();
+  var tmWithYear = tm.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (tmWithYear) return capitalize(tmWithYear[1]) + ' ' + tmWithYear[2];
+  if (tm) return capitalize(tm) + ' ' + (new Date()).getFullYear();
   return s;
 }
 
