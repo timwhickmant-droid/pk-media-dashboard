@@ -15,6 +15,19 @@ const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 // Per-publisher detail lives in tabs named like "AWIN GREEN ROADS DATA (JUNE)".
 const AFFILIATE_SPREADSHEET_ID = '1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4';
 
+// Brand-specific client commission reports.
+// Green Roads Monthly Commission Report:
+// https://docs.google.com/spreadsheets/d/1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4OItk5h1Aa62w/edit
+const GREEN_ROADS_COMMISSION_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4OItk5h1Aa62w';
+
+// Mystic Labs Monthly Commission Report:
+// https://docs.google.com/spreadsheets/d/1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6uIgg/edit
+const MYSTIC_LABS_COMMISSION_SPREADSHEET_ID = '1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6uIgg';
+
+// Hemp Bombs Monthly Commission Report:
+// https://docs.google.com/spreadsheets/d/1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JqYU5Eey7Q/edit
+const HEMP_BOMBS_COMMISSION_SPREADSHEET_ID = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JqYU5Eey7Q';
+
 // Platforms to exclude entirely from the feed (lowercase). Rows on these
 // platforms are dropped before any aggregation, so revenueTrend/mtd/meta/allRows
 // all exclude them.
@@ -488,6 +501,131 @@ function affMonthKey(dateVal, tabMonth) {
 function capitalize(w) {
   w = String(w).toLowerCase();
   return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+}
+
+// Manual runner for the Green Roads client spreadsheet.
+// In Apps Script, choose this function from the dropdown and click Run.
+function exportGreenRoadsCommissionReport() {
+  return exportBrandCommissionReport({
+    brand: 'Greenroads',
+    reportBrandName: 'GREEN ROADS',
+    spreadsheetId: GREEN_ROADS_COMMISSION_SPREADSHEET_ID
+  });
+}
+
+function exportMysticLabsCommissionReport() {
+  return exportBrandCommissionReport({
+    brand: 'Mystic Labs',
+    reportBrandName: 'MYSTIC LABS',
+    spreadsheetId: MYSTIC_LABS_COMMISSION_SPREADSHEET_ID
+  });
+}
+
+function exportHempBombsCommissionReport() {
+  return exportBrandCommissionReport({
+    brand: 'HempBombs',
+    reportBrandName: 'HEMP BOMBS',
+    spreadsheetId: HEMP_BOMBS_COMMISSION_SPREADSHEET_ID
+  });
+}
+
+function exportBrandCommissionReport(config) {
+  var rows = readCommission().filter(function(r) {
+    return r.brand === config.brand;
+  });
+
+  if (!rows.length) {
+    return { ok: false, error: 'No commission rows found for ' + config.brand };
+  }
+
+  var byMonth = {};
+  rows.forEach(function(r) {
+    var monthKey = String(r.monthKey || '').trim();
+    if (!monthKey) return;
+    if (!byMonth[monthKey]) byMonth[monthKey] = [];
+    byMonth[monthKey].push(r);
+  });
+
+  var reportSs = SpreadsheetApp.openById(config.spreadsheetId);
+  var months = Object.keys(byMonth).sort(monthKeySort);
+  var written = [];
+
+  months.forEach(function(monthKey) {
+    var sheetName = monthKey.toUpperCase();
+    var sh = reportSs.getSheetByName(sheetName) || reportSs.insertSheet(sheetName);
+    var monthRows = byMonth[monthKey];
+
+    writeCommissionMonthSheet(sh, monthKey, config.reportBrandName, monthRows);
+    written.push({ sheet: sheetName, rows: monthRows.length });
+  });
+
+  return {
+    ok: true,
+    brand: config.reportBrandName,
+    monthsWritten: written.length,
+    sheets: written,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function writeCommissionMonthSheet(sh, monthKey, reportBrandName, rows) {
+  var headers = ['DATE', 'BRAND', 'PUBLISHER ID', 'USERNAME', 'TRANSACTIONS', 'SALES', 'COMMISSION'];
+  var values = rows.map(function(r) {
+    return [
+      monthKey,
+      reportBrandName,
+      r.publisherId,
+      r.username,
+      r.transactions || 0,
+      r.sales || 0,
+      r.commission || 0
+    ];
+  });
+
+  var totals = values.reduce(function(acc, row) {
+    acc.transactions += Number(row[4]) || 0;
+    acc.sales        += Number(row[5]) || 0;
+    acc.commission   += Number(row[6]) || 0;
+    return acc;
+  }, { transactions: 0, sales: 0, commission: 0 });
+
+  values.push(['TOTAL', '', '', '', totals.transactions, totals.sales, totals.commission]);
+
+  if (sh.getMaxRows() < values.length + 1) {
+    sh.insertRowsAfter(sh.getMaxRows(), values.length + 1 - sh.getMaxRows());
+  }
+
+  sh.getRange(1, 1, Math.max(sh.getMaxRows(), 1), headers.length).clearContent();
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sh.getRange(2, 1, values.length, headers.length).setValues(values);
+
+  var lastRow = values.length + 1;
+  sh.getRange(1, 1, 1, headers.length)
+    .setFontWeight('bold')
+    .setFontColor('#ffffff')
+    .setBackground('#2f6f55');
+  sh.getRange(lastRow, 1, 1, headers.length)
+    .setFontWeight('bold')
+    .setBackground('#10e0df');
+  sh.getRange(2, 5, values.length, 1).setNumberFormat('0');
+  sh.getRange(2, 6, values.length, 2).setNumberFormat('$#,##0.00');
+  sh.autoResizeColumns(1, headers.length);
+
+  if (!sh.getFilter()) {
+    sh.getRange(1, 1, lastRow, headers.length).createFilter();
+  }
+}
+
+function monthKeySort(a, b) {
+  return monthKeyNumber(a) - monthKeyNumber(b);
+}
+
+function monthKeyNumber(monthKey) {
+  var m = String(monthKey).trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (!m) return 0;
+  var monthIndex = MONTHS[m[1].toLowerCase()];
+  if (monthIndex === undefined) return 0;
+  return parseInt(m[2], 10) * 12 + monthIndex;
 }
 
 function json(obj, e) {
