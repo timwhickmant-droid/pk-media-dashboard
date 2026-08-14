@@ -3,68 +3,57 @@
 //
 // HOW TO DEPLOY:
 // 1. Paste this entire file into script.google.com
-// 2. Deploy > New Deployment > Web App
+// 2. Deploy > Manage deployments > (edit) > Version: New version > Deploy
 //    - Execute as: Me
 //    - Who has access: Anyone
+//    IMPORTANT: editing this file does NOT update the live Web App. You must
+//    push a NEW VERSION every time, or the old code keeps serving.
 // 3. Copy the Web App URL > paste into dashboard HTML as API_URL
+//
+// FIRST-TIME SETUP (or if the dashboard shows "Unauthorized (sample data)"):
+//   Run checkSetup() from the editor. It reports whether SHARED_SECRET is set
+//   and which spreadsheets this script can actually open.
+//
+// IF SHEET EDITS AREN'T SHOWING ON THE DASHBOARD:
+//   - Run resetCache() from the editor (Run > resetCache), or
+//   - Hit the Web App URL with &nocache=1, or
+//   - Hit the Web App URL with &action=clear_cache
+//   Then run diagnose() to see which tabs the script is actually reading.
 
 const SPREADSHEET_ID = '19EmpiQ6QrR3FYT5FlnmEns-bWilZCk9ffqgRoJVLg7g';
 const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 
-// Monthly Affiliate Report spreadsheet — source for the Commission tab.
+// Commission (affiliate) sources.
+//
 // Per-publisher detail lives in tabs named like "AWIN GREEN ROADS DATA (JUNE)".
-// This stays as the fallback: any brand without its own workbook below is still
-// read from here.
-const AFFILIATE_SPREADSHEET_ID = '1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4';
+// Green Roads now lives in its own spreadsheet; every other brand still comes
+// from the shared Monthly Affiliate Report.
+const AFFILIATE_SPREADSHEET_ID            = '1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4';
+const GREENROADS_AFFILIATE_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4Oltk5hIAa62wI';
 
-// Brand-specific client commission reports.
-// Green Roads Monthly Commission Report:
-// https://docs.google.com/spreadsheets/d/1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4OItk5h1Aa62w/edit
-const GREEN_ROADS_COMMISSION_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4OItk5h1Aa62w';
-
-// Mystic Labs Monthly Commission Report:
-// https://docs.google.com/spreadsheets/d/1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6uIgg/edit
-const MYSTIC_LABS_COMMISSION_SPREADSHEET_ID = '1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6uIgg';
-
-// Hemp Bombs Monthly Commission Report:
-// https://docs.google.com/spreadsheets/d/1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JqYU5Eey7Q/edit
-const HEMP_BOMBS_COMMISSION_SPREADSHEET_ID = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JqYU5Eey7Q';
-
-// ── One spreadsheet per brand ────────────────────────────────────────────────
-// This is the list to edit when a brand moves to its own commission workbook.
-// Add one entry and both the dashboard and the exporter pick it up — nothing
-// else needs changing.
+// Each source is read independently and the rows are concatenated.
+//   onlyBrands      - keep only these brands from this source (after normalization)
+//   excludeBrands   - drop these brands from this source
+//   defaultBrand    - used when the sheet has no Brand column (single-brand sheet)
+//   defaultPlatform - used when the tab name doesn't start with AWIN/Impact
 //
-//   brand            must match the normalised name (see normalizeAffBrand)
-//   reportBrandName  how the brand is written inside that workbook
-//   platform         network the rows belong to: 'AWIN' or 'Impact'
-//   spreadsheetId    the id from the workbook's URL, between /d/ and /edit
-//
-// A brand listed here has its rows read from its own workbook, replacing
-// anything for that brand in the shared Monthly Affiliate Report — so leaving
-// the old data in place cannot double-count. A brand not listed keeps coming
-// from the shared workbook, so brands can migrate one at a time.
-const CLIENT_COMMISSION_REPORTS = [
+// TO MOVE ANOTHER BRAND TO ITS OWN SPREADSHEET:
+//   1. Add a const above with the new spreadsheet's id.
+//   2. Add its id to the excludeBrands list of the shared source below, so the
+//      brand stops being read twice.
+//   3. Add a new entry here with onlyBrands/defaultBrand set to that brand.
+//   Then run testCommissionSources() to confirm both sources look right.
+const COMMISSION_SOURCES = [
   {
-    brand: 'Greenroads',
-    reportBrandName: 'GREEN ROADS',
-    platform: 'AWIN',
-    spreadsheetId: GREEN_ROADS_COMMISSION_SPREADSHEET_ID
+    id:            AFFILIATE_SPREADSHEET_ID,
+    excludeBrands: ['Greenroads']
   },
   {
-    brand: 'Mystic Labs',
-    reportBrandName: 'MYSTIC LABS',
-    platform: 'Impact',
-    spreadsheetId: MYSTIC_LABS_COMMISSION_SPREADSHEET_ID
-  },
-  {
-    brand: 'HempBombs',
-    reportBrandName: 'HEMP BOMBS',
-    platform: 'Impact',
-    spreadsheetId: HEMP_BOMBS_COMMISSION_SPREADSHEET_ID
+    id:              GREENROADS_AFFILIATE_SPREADSHEET_ID,
+    onlyBrands:      ['Greenroads'],
+    defaultBrand:    'Greenroads',
+    defaultPlatform: 'AWIN'
   }
-  // Cannabis Life has no dedicated workbook yet — it still comes from the
-  // shared Monthly Affiliate Report. Add an entry here when it gets one.
 ];
 
 // Platforms to exclude entirely from the feed (lowercase). Rows on these
@@ -79,14 +68,19 @@ const DEFAULT_GOAL_BRANDS = ['Greenroads','Cannabis Life','HempBombs','Mystic La
 // How many of the most recent "MMM YYYY" tabs to include in the historical
 // trend/allRows feed. Without this cap, doGet() re-reads every month tab that
 // has ever existed on every request, and it only gets slower as tabs pile up.
+// NOTE: edits made to a month tab OLDER than the most recent MAX_HISTORY_MONTHS
+// will never appear in revenueTrend / allRows. Raise this if you backfill.
 const MAX_HISTORY_MONTHS = 12;
 
 // Seconds to serve a cached copy of the built payload before recomputing.
 // Cuts response time from ~seconds (cold read across two spreadsheets) down to
 // milliseconds. The source sheets are updated weekly, so a 3-minute window meant
 // nearly every visit paid full price; 30 minutes makes cache hits the norm
-// without letting data go meaningfully stale. The dashboard's Refresh button
-// sends nocache=1 to bypass this, and saving goals clears it immediately.
+// without letting data go meaningfully stale.
+//
+// The cache is bypassed by nocache=1, cleared by action=clear_cache, cleared by
+// resetCache() in the editor, and cleared automatically when goals are saved.
+// While actively testing sheet edits, drop this to 60.
 const CACHE_TTL_SECONDS = 1800;
 
 const MONTHS = {
@@ -105,57 +99,6 @@ const BRAND_ALIAS = {
   'Mystic Labs':   'Mystic Labs'
 };
 
-// Setup check
-//
-// Select checkSetup in the toolbar's function dropdown and press Run, then open
-// the execution log. Reports what is configured without printing the secret, so
-// the log is safe to screenshot.
-function checkSetup() {
-  var props  = PropertiesService.getScriptProperties();
-  var secret = props.getProperty('SHARED_SECRET');
-  var lines  = [];
-
-  if (!secret) {
-    lines.push('SHARED_SECRET: NOT SET  <-- this is why the dashboard shows "Unauthorized (sample data)"');
-    lines.push('   Fix: Project Settings (gear icon, left sidebar) > Script Properties >');
-    lines.push('        Add script property. Name: SHARED_SECRET');
-    lines.push('        Value: the exact same string as DASHBOARD_API_SECRET in Vercel.');
-  } else {
-    // A fingerprint, not the value — enough to compare against Vercel safely.
-    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, secret);
-    var fp = digest.slice(0, 4).map(function (b) {
-      return ('0' + (b & 0xFF).toString(16)).slice(-2);
-    }).join('');
-    lines.push('SHARED_SECRET: set (' + secret.length + ' chars, fingerprint ' + fp + ')');
-    if (secret !== secret.trim()) {
-      lines.push('   WARNING: it has leading or trailing whitespace — that alone causes a mismatch.');
-    }
-    lines.push('   If the dashboard still says Unauthorized, the value differs from Vercel\'s.');
-  }
-
-  lines.push('');
-  lines.push('Spreadsheets reachable from this script:');
-
-  var report = function (label, id) {
-    if (!id) { lines.push('  ' + label + ': not configured'); return; }
-    try {
-      lines.push('  ' + label + ': ' + SpreadsheetApp.openById(id).getName());
-    } catch (err) {
-      lines.push('  ' + label + ': CANNOT OPEN — ' + err.message);
-    }
-  };
-
-  report('performance', SPREADSHEET_ID);
-  report('shared affiliate report', AFFILIATE_SPREADSHEET_ID);
-  CLIENT_COMMISSION_REPORTS.forEach(function (cfg) {
-    report(cfg.brand + ' (' + cfg.platform + ')', cfg.spreadsheetId);
-  });
-
-  var out = lines.join('\n');
-  Logger.log(out);
-  return out;
-}
-
 // Entry point
 
 function doGet(e) {
@@ -172,8 +115,8 @@ function doGet(e) {
     // these messages reveal the secret itself.
     if (!expectedSecret) {
       return json({ error: 'SHARED_SECRET is not set on this script. In the Apps Script editor: ' +
-        'Project Settings (gear) > Script Properties > Add script property, name SHARED_SECRET, ' +
-        'value = the same string as DASHBOARD_API_SECRET in Vercel. Run checkSetup() to verify.' }, e);
+        'Project Settings (gear icon) > Script Properties > Add script property, name SHARED_SECRET, ' +
+        'value = the same string as DASHBOARD_API_SECRET in Vercel. Then run checkSetup() to verify.' }, e);
     }
     if (!providedSecret) {
       return json({ error: 'Request arrived without a secret. Check APPS_SCRIPT_URL in Vercel points at ' +
@@ -188,100 +131,116 @@ function doGet(e) {
       return json(saveGoals(e), e);
     }
 
+    // Manual cache bust from the dashboard / proxy without rebuilding.
+    if (e && e.parameter && e.parameter.action === 'clear_cache') {
+      invalidatePayloadCache();
+      return json({ ok: true, cleared: true, clearedAt: new Date().toISOString() }, e);
+    }
+
     var noCache = e && e.parameter && e.parameter.nocache === '1';
     if (!noCache) {
       var cached = cacheGetPayload();
       if (cached) return jsonRaw(cached, e);
     }
 
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-
-    // Latest month tab
-    var latestSh = SHEET_NAME
-      ? ss.getSheetByName(SHEET_NAME)
-      : pickLatestMonthSheet(ss);
-    if (!latestSh) throw new Error('No matching sheet tab found' +
-      (SHEET_NAME ? ': ' + SHEET_NAME : ' (looking for "MMM YYYY" pattern)'));
-
-    var latestRows = readRows(latestSh);
-    var payload    = buildPayload(latestRows);
-    payload.meta.source_tab = latestSh.getName();
-
-    // All month tabs for historical trend, capped to the most recent
-    // MAX_HISTORY_MONTHS so this stays bounded as more tabs get added over time.
-    var monthSheets = [];
-    ss.getSheets().forEach(function(sh) {
-      var m = sh.getName().trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
-      if (!m) return;
-      var mIdx = MONTHS[m[1].toLowerCase()];
-      if (mIdx === undefined) return;
-      monthSheets.push({ sh: sh, key: parseInt(m[2], 10) * 12 + mIdx });
-    });
-    monthSheets.sort(function(a, b) { return a.key - b.key; });
-    if (monthSheets.length > MAX_HISTORY_MONTHS) {
-      monthSheets = monthSheets.slice(monthSheets.length - MAX_HISTORY_MONTHS);
-    }
-
-    var allRows = [];
-    monthSheets.forEach(function(o) {
-      readRows(o.sh).forEach(function(r) { allRows.push(r); });
-    });
-
-    // Group by week across all months
-    var trendBy = {}, trendOrder = [];
-    allRows.forEach(function(r) {
-      if (!r.week) return;
-      if (!trendBy[r.week]) {
-        trendBy[r.week] = { revenue: 0, spend: 0, clicks: 0 };
-        trendOrder.push(r.week);
-      }
-      trendBy[r.week].revenue += r.revenue || 0;
-      trendBy[r.week].spend   += r.spend   || 0;
-      trendBy[r.week].clicks  += r.clicks  || 0;
-    });
-
-    payload.revenueTrend = trendOrder.map(function(w, i) {
-      var t = trendBy[w];
-      return {
-        week_label: 'W' + (i + 1),
-        week_full:  w,
-        revenue:    Math.round(t.revenue),
-        spend:      Math.round(t.spend),
-        roas:       t.spend ? Math.round((t.revenue / t.spend) * 100) / 100 : 0,
-        clicks:     Math.round(t.clicks)
-      };
-    });
-
-    payload.dailySpend = trendOrder.map(function(w, i) {
-      return { date: 'W' + (i + 1), spend: Math.round(trendBy[w].spend) };
-    });
-
-    // Expose all rows with week_label for the campaigns/analytics tabs
-    var weekToLabel = {};
-    trendOrder.forEach(function(w, i) { weekToLabel[w] = 'W' + (i + 1); });
-    payload.allRows = allRows.map(function(r) {
-      return Object.assign({}, r, { week_label: weekToLabel[r.week] || r.week });
-    });
-
-    payload.goals = getGoals(ss);
-
-    // Commission (affiliate) detail from the separate Monthly Affiliate Report.
-    // Never let a problem here break the main feed.
-    try {
-      payload.commission = readCommission();
-    } catch (cErr) {
-      payload.commission = [];
-      payload.commissionError = cErr.message;
-    }
-
-    payload.generatedAt = new Date().toISOString();
-    var str = JSON.stringify(payload);
+    var str = buildFullPayloadString();
     cachePutPayload(str);
     return jsonRaw(str, e);
 
   } catch (err) {
     return json({ error: err.message, stack: err.stack }, e);
   }
+}
+
+// Builds the complete payload JSON string from live sheet data.
+// Split out of doGet() so diagnose() and manual runs can exercise the exact
+// same code path the Web App uses, without going through the cache.
+function buildFullPayloadString() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // Latest month tab
+  var latestSh = SHEET_NAME
+    ? ss.getSheetByName(SHEET_NAME)
+    : pickLatestMonthSheet(ss);
+  if (!latestSh) throw new Error('No matching sheet tab found' +
+    (SHEET_NAME ? ': ' + SHEET_NAME : ' (looking for "MMM YYYY" pattern)'));
+
+  var latestRows = readRows(latestSh);
+  var payload    = buildPayload(latestRows);
+  payload.meta.source_tab = latestSh.getName();
+
+  // All month tabs for historical trend, capped to the most recent
+  // MAX_HISTORY_MONTHS so this stays bounded as more tabs get added over time.
+  var monthSheets = [];
+  ss.getSheets().forEach(function(sh) {
+    var m = sh.getName().trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
+    if (!m) return;
+    var mIdx = MONTHS[m[1].toLowerCase()];
+    if (mIdx === undefined) return;
+    monthSheets.push({ sh: sh, key: parseInt(m[2], 10) * 12 + mIdx });
+  });
+  monthSheets.sort(function(a, b) { return a.key - b.key; });
+  if (monthSheets.length > MAX_HISTORY_MONTHS) {
+    monthSheets = monthSheets.slice(monthSheets.length - MAX_HISTORY_MONTHS);
+  }
+
+  var allRows = [];
+  monthSheets.forEach(function(o) {
+    readRows(o.sh).forEach(function(r) { allRows.push(r); });
+  });
+
+  // Group by week across all months
+  var trendBy = {}, trendOrder = [];
+  allRows.forEach(function(r) {
+    if (!r.week) return;
+    if (!trendBy[r.week]) {
+      trendBy[r.week] = { revenue: 0, spend: 0, clicks: 0 };
+      trendOrder.push(r.week);
+    }
+    trendBy[r.week].revenue += r.revenue || 0;
+    trendBy[r.week].spend   += r.spend   || 0;
+    trendBy[r.week].clicks  += r.clicks  || 0;
+  });
+
+  payload.revenueTrend = trendOrder.map(function(w, i) {
+    var t = trendBy[w];
+    return {
+      week_label: 'W' + (i + 1),
+      week_full:  w,
+      revenue:    Math.round(t.revenue),
+      spend:      Math.round(t.spend),
+      roas:       t.spend ? Math.round((t.revenue / t.spend) * 100) / 100 : 0,
+      clicks:     Math.round(t.clicks)
+    };
+  });
+
+  payload.dailySpend = trendOrder.map(function(w, i) {
+    return { date: 'W' + (i + 1), spend: Math.round(trendBy[w].spend) };
+  });
+
+  // Expose all rows with week_label for the campaigns/analytics tabs
+  var weekToLabel = {};
+  trendOrder.forEach(function(w, i) { weekToLabel[w] = 'W' + (i + 1); });
+  payload.allRows = allRows.map(function(r) {
+    return Object.assign({}, r, { week_label: weekToLabel[r.week] || r.week });
+  });
+
+  payload.goals = getGoals(ss);
+
+  // Commission (affiliate) detail, read across every configured source.
+  // Never let a problem here break the main feed — and a failure on one
+  // source (permissions, renamed tabs) must not wipe out the others.
+  try {
+    var comm = readCommissionAll();
+    payload.commission = comm.rows;
+    if (comm.errors.length) payload.commissionError = comm.errors.join(' | ');
+  } catch (cErr) {
+    payload.commission = [];
+    payload.commissionError = cErr.message;
+  }
+
+  payload.generatedAt = new Date().toISOString();
+  return JSON.stringify(payload);
 }
 
 // Sheet picker
@@ -512,11 +471,37 @@ function empty() {
 
 // Commission (affiliate) reader
 
-// Reads per-publisher rows from every "... DATA (MONTH)" tab in the affiliate
-// spreadsheet and returns a flat array the dashboard's Commission tab consumes.
+// Reads per-publisher rows from every configured commission source and returns
+// a flat array the dashboard's Commission tab consumes, plus any per-source
+// errors so a single broken spreadsheet doesn't silently zero out the tab.
+function readCommissionAll() {
+  var rows = [], errors = [];
+
+  COMMISSION_SOURCES.forEach(function(src) {
+    if (!src || !src.id) return;
+    try {
+      readCommissionFromSource(src).forEach(function(r) { rows.push(r); });
+    } catch (err) {
+      errors.push(src.id + ': ' + err.message);
+    }
+  });
+
+  return { rows: rows, errors: errors };
+}
+
+// Kept as a plain array-returning wrapper for manual runs / older callers.
 function readCommission() {
-  var ss  = SpreadsheetApp.openById(AFFILIATE_SPREADSHEET_ID);
+  return readCommissionAll().rows;
+}
+
+// Reads every "... DATA (MONTH)" tab in one source spreadsheet.
+function readCommissionFromSource(src) {
+  var ss  = SpreadsheetApp.openById(src.id);
   var out = [];
+
+  var only = (src.onlyBrands    || []).map(normalizeAffBrand);
+  var excl = (src.excludeBrands || []).map(normalizeAffBrand);
+  var fallbackBrand = src.defaultBrand ? normalizeAffBrand(src.defaultBrand) : '';
 
   ss.getSheets().forEach(function(sh) {
     var name = sh.getName().trim();
@@ -527,6 +512,9 @@ function readCommission() {
 
     var platMatch = name.match(/^([A-Za-z.]+)\b/);
     var platform  = platMatch ? normalizeAffPlatform(platMatch[1]) : '';
+    if (!platform || (platform !== 'AWIN' && platform !== 'Impact')) {
+      platform = src.defaultPlatform || platform;
+    }
 
     var values = sh.getDataRange().getValues();
     if (values.length < 2) return;
@@ -551,79 +539,20 @@ function readCommission() {
       if (firstCell === 'total') continue; // skip footer total row
 
       var brandRaw = idx.brand >= 0 ? String(row[idx.brand] || '').trim() : '';
-      if (!brandRaw) continue;
+      var brand    = brandRaw ? normalizeAffBrand(brandRaw) : fallbackBrand;
+      if (!brand) continue;
+
+      // On single-brand sheets the brand cell can't be used to detect blank
+      // rows, so check that the row actually carries data before keeping it.
+      if (!brandRaw && !rowHasCommissionData(row, idx)) continue;
+
+      if (only.length && only.indexOf(brand) === -1) continue;
+      if (excl.length && excl.indexOf(brand) !== -1) continue;
 
       out.push({
         monthKey:     affMonthKey(idx.date >= 0 ? (dateDisplay[i - 1][0] || row[idx.date]) : '', tabMonth),
         platform:     platform,
-        brand:        normalizeAffBrand(brandRaw),
-        publisherId:  idx.pubId    >= 0 ? String(row[idx.pubId] || '').trim() : '',
-        username:     idx.username >= 0 ? String(row[idx.username] || '').trim() : '',
-        transactions: toNum(idx.trans >= 0 ? row[idx.trans] : null) || 0,
-        sales:        toNum(idx.sales >= 0 ? row[idx.sales] : null) || 0,
-        commission:   toNum(idx.comm  >= 0 ? row[idx.comm]  : null) || 0
-      });
-    }
-  });
-
-  // Every brand with its own workbook overrides whatever the shared report said.
-  // Driven by CLIENT_COMMISSION_REPORTS so adding a brand is a single entry
-  // there — previously each brand was hand-wired here, and HempBombs had an
-  // exporter and a workbook but was never added to this read path, so its
-  // figures still came from the shared report.
-  CLIENT_COMMISSION_REPORTS.forEach(function (cfg) {
-    out = replaceCommissionRowsFromClientReport(out, cfg);
-  });
-
-  return out;
-}
-
-function replaceCommissionRowsFromClientReport(rows, config) {
-  var clientRows = readClientCommissionReport(config);
-  if (!clientRows.length) return rows;
-  return rows.filter(function(r) { return r.brand !== config.brand; }).concat(clientRows);
-}
-
-// Reads a client-facing brand commission workbook with month tabs like
-// "JUNE 2026" and rows in DATE/BRAND/PUBLISHER ID/USERNAME/... format.
-function readClientCommissionReport(config) {
-  var ss = SpreadsheetApp.openById(config.spreadsheetId);
-  var out = [];
-
-  ss.getSheets().forEach(function(sh) {
-    var sheetName = sh.getName().trim();
-    if (!sheetName.match(/^([A-Za-z]+)\s+(\d{4})$/)) return;
-
-    var values = sh.getDataRange().getValues();
-    if (values.length < 2) return;
-
-    var headers = values[0].map(function(h) { return String(h).trim(); });
-    var idx = {
-      date:     find(headers, /^date$/i),
-      brand:    find(headers, /^brand$/i),
-      pubId:    find(headers, /publisher\s*id|media\s*partner\s*id|partner\s*id|^publisher$/i),
-      username: find(headers, /user\s*name|publisher\s*name|username/i),
-      trans:    find(headers, /transaction/i),
-      sales:    find(headers, /^sales$/i),
-      comm:     find(headers, /commission/i)
-    };
-
-    var numRows = values.length - 1;
-    var dateDisplay = idx.date >= 0 ? sh.getRange(2, idx.date + 1, numRows, 1).getDisplayValues() : null;
-
-    for (var i = 1; i < values.length; i++) {
-      var row = values[i];
-      var firstCell = String(row[0] || '').trim().toLowerCase();
-      if (!firstCell || firstCell === 'total') continue;
-
-      var brandRaw = idx.brand >= 0 ? String(row[idx.brand] || '').trim() : config.reportBrandName;
-      var brand = normalizeAffBrand(brandRaw || config.reportBrandName);
-      if (brand !== config.brand) continue;
-
-      out.push({
-        monthKey:     affMonthKey(idx.date >= 0 ? (dateDisplay[i - 1][0] || row[idx.date]) : '', sheetName),
-        platform:     config.platform,
-        brand:        config.brand,
+        brand:        brand,
         publisherId:  idx.pubId    >= 0 ? String(row[idx.pubId] || '').trim() : '',
         username:     idx.username >= 0 ? String(row[idx.username] || '').trim() : '',
         transactions: toNum(idx.trans >= 0 ? row[idx.trans] : null) || 0,
@@ -634,6 +563,44 @@ function readClientCommissionReport(config) {
   });
 
   return out;
+}
+
+function rowHasCommissionData(row, idx) {
+  if (idx.pubId    >= 0 && String(row[idx.pubId]    || '').trim()) return true;
+  if (idx.username >= 0 && String(row[idx.username] || '').trim()) return true;
+  if (idx.trans >= 0 && toNum(row[idx.trans])) return true;
+  if (idx.sales >= 0 && toNum(row[idx.sales])) return true;
+  if (idx.comm  >= 0 && toNum(row[idx.comm]))  return true;
+  return false;
+}
+
+// Run from the editor to confirm each source is being read as expected.
+// Logs tab names, row counts and brand totals per source.
+function testCommissionSources() {
+  COMMISSION_SOURCES.forEach(function(src) {
+    Logger.log('--- source: ' + src.id);
+    try {
+      var ss = SpreadsheetApp.openById(src.id);
+      var tabs = ss.getSheets()
+        .map(function(sh) { return sh.getName(); })
+        .filter(function(n) { return /\bDATA\b\s*\(([^)]*)\)/i.test(n); });
+      Logger.log('matching tabs: ' + (tabs.length ? tabs.join(', ') : 'NONE — check tab naming'));
+
+      var rows = readCommissionFromSource(src);
+      Logger.log('rows kept: ' + rows.length);
+
+      var byBrand = {};
+      rows.forEach(function(r) {
+        if (!byBrand[r.brand]) byBrand[r.brand] = { rows: 0, sales: 0, commission: 0 };
+        byBrand[r.brand].rows++;
+        byBrand[r.brand].sales      += r.sales;
+        byBrand[r.brand].commission += r.commission;
+      });
+      Logger.log(JSON.stringify(byBrand, null, 2));
+    } catch (err) {
+      Logger.log('ERROR: ' + err.message);
+    }
+  });
 }
 
 function normalizeAffPlatform(p) {
@@ -665,132 +632,13 @@ function affMonthKey(dateVal, tabMonth) {
   var s = String(dateVal || '').trim();
   var m = s.match(/^([A-Za-z]+)\s+(\d{4})$/);
   if (m) return capitalize(m[1]) + ' ' + m[2];
-  var tm = String(tabMonth || '').trim();
-  var tmWithYear = tm.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (tmWithYear) return capitalize(tmWithYear[1]) + ' ' + tmWithYear[2];
-  if (tm) return capitalize(tm) + ' ' + (new Date()).getFullYear();
+  if (tabMonth) return capitalize(tabMonth) + ' ' + (new Date()).getFullYear();
   return s;
 }
 
 function capitalize(w) {
   w = String(w).toLowerCase();
   return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
-}
-
-// Manual runners for the client spreadsheets.
-// In Apps Script, choose one from the dropdown and click Run.
-//
-// These read their config from CLIENT_COMMISSION_REPORTS, the same list the
-// dashboard reads, so the two cannot drift apart — that drift is what left
-// HempBombs exporting to a workbook the dashboard never read back.
-function exportBrandReportByName(brand) {
-  var cfg = null;
-  CLIENT_COMMISSION_REPORTS.forEach(function (c) { if (c.brand === brand) cfg = c; });
-  if (!cfg) return { ok: false, error: 'No entry for ' + brand + ' in CLIENT_COMMISSION_REPORTS' };
-  return exportBrandCommissionReport(cfg);
-}
-
-function exportGreenRoadsCommissionReport() { return exportBrandReportByName('Greenroads'); }
-function exportMysticLabsCommissionReport() { return exportBrandReportByName('Mystic Labs'); }
-function exportHempBombsCommissionReport()  { return exportBrandReportByName('HempBombs'); }
-
-function exportBrandCommissionReport(config) {
-  var rows = readCommission().filter(function(r) {
-    return r.brand === config.brand;
-  });
-
-  if (!rows.length) {
-    return { ok: false, error: 'No commission rows found for ' + config.brand };
-  }
-
-  var byMonth = {};
-  rows.forEach(function(r) {
-    var monthKey = String(r.monthKey || '').trim();
-    if (!monthKey) return;
-    if (!byMonth[monthKey]) byMonth[monthKey] = [];
-    byMonth[monthKey].push(r);
-  });
-
-  var reportSs = SpreadsheetApp.openById(config.spreadsheetId);
-  var months = Object.keys(byMonth).sort(monthKeySort);
-  var written = [];
-
-  months.forEach(function(monthKey) {
-    var sheetName = monthKey.toUpperCase();
-    var sh = reportSs.getSheetByName(sheetName) || reportSs.insertSheet(sheetName);
-    var monthRows = byMonth[monthKey];
-
-    writeCommissionMonthSheet(sh, monthKey, config.reportBrandName, monthRows);
-    written.push({ sheet: sheetName, rows: monthRows.length });
-  });
-
-  return {
-    ok: true,
-    brand: config.reportBrandName,
-    monthsWritten: written.length,
-    sheets: written,
-    updatedAt: new Date().toISOString()
-  };
-}
-
-function writeCommissionMonthSheet(sh, monthKey, reportBrandName, rows) {
-  var headers = ['DATE', 'BRAND', 'PUBLISHER ID', 'USERNAME', 'TRANSACTIONS', 'SALES', 'COMMISSION'];
-  var values = rows.map(function(r) {
-    return [
-      monthKey,
-      reportBrandName,
-      r.publisherId,
-      r.username,
-      r.transactions || 0,
-      r.sales || 0,
-      r.commission || 0
-    ];
-  });
-
-  var totals = values.reduce(function(acc, row) {
-    acc.transactions += Number(row[4]) || 0;
-    acc.sales        += Number(row[5]) || 0;
-    acc.commission   += Number(row[6]) || 0;
-    return acc;
-  }, { transactions: 0, sales: 0, commission: 0 });
-
-  values.push(['TOTAL', '', '', '', totals.transactions, totals.sales, totals.commission]);
-
-  if (sh.getMaxRows() < values.length + 1) {
-    sh.insertRowsAfter(sh.getMaxRows(), values.length + 1 - sh.getMaxRows());
-  }
-
-  sh.getRange(1, 1, Math.max(sh.getMaxRows(), 1), headers.length).clearContent();
-  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-  sh.getRange(2, 1, values.length, headers.length).setValues(values);
-
-  var lastRow = values.length + 1;
-  sh.getRange(1, 1, 1, headers.length)
-    .setFontWeight('bold')
-    .setFontColor('#ffffff')
-    .setBackground('#2f6f55');
-  sh.getRange(lastRow, 1, 1, headers.length)
-    .setFontWeight('bold')
-    .setBackground('#10e0df');
-  sh.getRange(2, 5, values.length, 1).setNumberFormat('0');
-  sh.getRange(2, 6, values.length, 2).setNumberFormat('$#,##0.00');
-  sh.autoResizeColumns(1, headers.length);
-
-  if (!sh.getFilter()) {
-    sh.getRange(1, 1, lastRow, headers.length).createFilter();
-  }
-}
-
-function monthKeySort(a, b) {
-  return monthKeyNumber(a) - monthKeyNumber(b);
-}
-
-function monthKeyNumber(monthKey) {
-  var m = String(monthKey).trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (!m) return 0;
-  var monthIndex = MONTHS[m[1].toLowerCase()];
-  if (monthIndex === undefined) return 0;
-  return parseInt(m[2], 10) * 12 + monthIndex;
 }
 
 function json(obj, e) {
@@ -861,6 +709,114 @@ function cachePutPayload(str) {
   } catch (err) {
     // Cache failures shouldn't break the response — the payload was already returned live.
   }
+}
+
+// Maintenance / diagnostics
+//
+// Run these straight from the Apps Script editor (Run > pick function).
+
+// START HERE if the dashboard shows "Unauthorized (sample data)".
+// Reports what is configured without ever printing the secret, so the log is
+// safe to screenshot.
+function checkSetup() {
+  var secret = PropertiesService.getScriptProperties().getProperty('SHARED_SECRET');
+  var lines  = [];
+
+  if (!secret) {
+    lines.push('SHARED_SECRET: NOT SET  <-- this is why the dashboard shows "Unauthorized (sample data)"');
+    lines.push('   Fix: Project Settings (gear icon, left sidebar) > Script Properties >');
+    lines.push('        Add script property. Name: SHARED_SECRET');
+    lines.push('        Value: the exact same string as DASHBOARD_API_SECRET in Vercel.');
+    lines.push('        Then Deploy > Manage deployments > edit > New version > Deploy.');
+  } else {
+    // A fingerprint, not the value — enough to compare against Vercel safely.
+    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, secret);
+    var fp = digest.slice(0, 4).map(function(b) {
+      return ('0' + (b & 0xFF).toString(16)).slice(-2);
+    }).join('');
+    lines.push('SHARED_SECRET: set (' + secret.length + ' chars, fingerprint ' + fp + ')');
+    if (secret !== secret.trim()) {
+      lines.push('   WARNING: it has leading or trailing whitespace — that alone causes a mismatch.');
+    }
+    lines.push('   If the dashboard still says Unauthorized, this value differs from Vercel\'s,');
+    lines.push('   or the Web App is still serving an older version (push a New version).');
+  }
+
+  lines.push('');
+  lines.push('Spreadsheets this script can open:');
+
+  var report = function(label, id) {
+    if (!id) { lines.push('  ' + label + ': not configured'); return; }
+    try {
+      lines.push('  ' + label + ': OK — "' + SpreadsheetApp.openById(id).getName() + '"');
+    } catch (err) {
+      lines.push('  ' + label + ': CANNOT OPEN — ' + err.message);
+      lines.push('     (wrong id, or this account lacks access)');
+    }
+  };
+
+  report('performance', SPREADSHEET_ID);
+  COMMISSION_SOURCES.forEach(function(src, i) {
+    report('commission source ' + (i + 1), src.id);
+  });
+
+  var out = lines.join('\n');
+  Logger.log(out);
+  return out;
+}
+
+// Clear the cached payload so the very next dashboard load rebuilds from live
+// sheet data. Run this after editing the source sheets if you don't want to
+// wait out CACHE_TTL_SECONDS.
+function resetCache() {
+  invalidatePayloadCache();
+  Logger.log('Payload cache cleared at ' + new Date().toISOString());
+}
+
+// Clear the cache, rebuild live, and log what the script actually saw.
+// This is the fastest way to answer "why isn't my sheet edit showing up?"
+function diagnose() {
+  invalidatePayloadCache();
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  var allTabs = ss.getSheets().map(function(sh) { return sh.getName(); });
+  Logger.log('ALL TABS: ' + allTabs.join(' | '));
+
+  var monthTabs = allTabs.filter(function(n) {
+    var m = n.trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
+    return m && MONTHS[m[1].toLowerCase()] !== undefined;
+  });
+  Logger.log('TABS MATCHING "MMM YYYY": ' + (monthTabs.length ? monthTabs.join(' | ') : 'NONE'));
+
+  var skipped = allTabs.filter(function(n) { return monthTabs.indexOf(n) === -1; });
+  Logger.log('TABS IGNORED BY THE MONTH PICKER: ' + (skipped.length ? skipped.join(' | ') : 'none'));
+
+  var latestSh = SHEET_NAME ? ss.getSheetByName(SHEET_NAME) : pickLatestMonthSheet(ss);
+  Logger.log('LATEST TAB PICKED: ' + (latestSh ? latestSh.getName() : 'NONE — nothing matched'));
+
+  if (latestSh) {
+    var rows = readRows(latestSh);
+    Logger.log('ROWS KEPT FROM LATEST TAB: ' + rows.length +
+      ' (rows with a blank Brand cell, or on ' + EXCLUDED_PLATFORMS.join('/') + ', are dropped)');
+    if (rows.length) {
+      Logger.log('FIRST ROW: ' + JSON.stringify(rows[0]));
+      Logger.log('LAST ROW:  ' + JSON.stringify(rows[rows.length - 1]));
+    }
+  }
+
+  var str = buildFullPayloadString();
+  var p   = JSON.parse(str);
+  Logger.log('--- REBUILT PAYLOAD ---');
+  Logger.log('source_tab:   ' + (p.meta && p.meta.source_tab));
+  Logger.log('week_range:   ' + (p.meta && p.meta.week_range));
+  Logger.log('mtd_revenue:  ' + (p.meta && p.meta.mtd_revenue));
+  Logger.log('mtd_spend:    ' + (p.meta && p.meta.mtd_spend));
+  Logger.log('allRows:      ' + (p.allRows || []).length);
+  Logger.log('commission:   ' + (p.commission || []).length);
+  if (p.commissionError) Logger.log('commissionError: ' + p.commissionError);
+  Logger.log('generatedAt:  ' + p.generatedAt);
+  Logger.log('payload size: ' + str.length + ' chars');
 }
 
 // Goals
