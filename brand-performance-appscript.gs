@@ -10,13 +10,18 @@
 //    push a NEW VERSION every time, or the old code keeps serving.
 // 3. Copy the Web App URL > paste into dashboard HTML as API_URL
 //
-// FIRST-TIME SETUP (or if the dashboard shows "Unauthorized (sample data)"):
-//   Run checkSetup() from the editor. It reports whether SHARED_SECRET is set
-//   and which spreadsheets this script can actually open.
+// FIRST-TIME SETUP:
+//   1. Run checkSetup()          - confirms SHARED_SECRET is set and every
+//                                  spreadsheet can be opened.
+//   2. Run installEditTriggers() - makes sheet edits appear on the dashboard
+//                                  immediately instead of waiting out the
+//                                  cache. Only needs doing once.
 //
 // IF SHEET EDITS AREN'T SHOWING ON THE DASHBOARD:
+//   First check the triggers are installed: run checkEditTriggers().
+//   To force it right now:
+//   - Click Refresh on the dashboard (it sends nocache=1), or
 //   - Run resetCache() from the editor (Run > resetCache), or
-//   - Hit the Web App URL with &nocache=1, or
 //   - Hit the Web App URL with &action=clear_cache
 //   Then run diagnose() to see which tabs the script is actually reading.
 
@@ -771,6 +776,88 @@ function checkSetup() {
 function resetCache() {
   invalidatePayloadCache();
   Logger.log('Payload cache cleared at ' + new Date().toISOString());
+}
+
+// ── Instant updates after a sheet edit ───────────────────────────────────────
+//
+// RUN installEditTriggers() ONCE from the editor.
+//
+// After that, editing any source spreadsheet clears the cached payload straight
+// away, so the next dashboard load shows the change immediately instead of
+// waiting out CACHE_TTL_SECONDS. The cache still does its job for everyone
+// else's page loads, so this buys instant edits without giving up fast loads.
+//
+// Re-running installEditTriggers() is safe — it removes its own old triggers
+// first, so you never end up with duplicates.
+function installEditTriggers() {
+  var removed = removeEditTriggers();
+
+  // Every spreadsheet the payload is built from, de-duplicated.
+  var ids = [SPREADSHEET_ID];
+  COMMISSION_SOURCES.forEach(function(src) {
+    if (src && src.id && ids.indexOf(src.id) === -1) ids.push(src.id);
+  });
+
+  var made = [], failed = [];
+  ids.forEach(function(id) {
+    try {
+      ScriptApp.newTrigger('onSourceEdit').forSpreadsheet(id).onEdit().create();
+      var name = '';
+      try { name = ' ("' + SpreadsheetApp.openById(id).getName() + '")'; } catch (e) {}
+      made.push(id + name);
+    } catch (err) {
+      failed.push(id + ' — ' + err.message);
+    }
+  });
+
+  var lines = [];
+  if (removed) lines.push('Removed ' + removed + ' existing trigger(s) first.');
+  lines.push('Installed ' + made.length + ' edit trigger(s):');
+  made.forEach(function(m) { lines.push('  OK  ' + m); });
+  if (failed.length) {
+    lines.push('FAILED — these will still wait for the cache to expire:');
+    failed.forEach(function(f) { lines.push('  !!  ' + f); });
+  }
+  lines.push('');
+  lines.push(made.length
+    ? 'Edits to the spreadsheets above now clear the cache immediately.'
+    : 'No triggers installed — edits will still wait out CACHE_TTL_SECONDS.');
+
+  var out = lines.join('\n');
+  Logger.log(out);
+  return out;
+}
+
+// Deletes only this script's own edit triggers. Returns how many were removed.
+function removeEditTriggers() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'onSourceEdit') {
+      ScriptApp.deleteTrigger(t);
+      n++;
+    }
+  });
+  return n;
+}
+
+// Fired by the installed triggers on every edit to a source spreadsheet.
+// Deliberately does almost nothing: this runs while someone is typing in the
+// sheet, so anything expensive here would make editing feel sluggish. Clearing
+// the cache is enough — the next dashboard request does the rebuild.
+function onSourceEdit(e) {
+  invalidatePayloadCache();
+}
+
+// Reports whether the instant-update triggers are actually installed.
+function checkEditTriggers() {
+  var mine = ScriptApp.getProjectTriggers().filter(function(t) {
+    return t.getHandlerFunction() === 'onSourceEdit';
+  });
+  var out = mine.length
+    ? mine.length + ' edit trigger(s) installed — sheet edits clear the cache immediately.'
+    : 'No edit triggers installed. Run installEditTriggers() once to enable instant updates.';
+  Logger.log(out);
+  return out;
 }
 
 // Clear the cache, rebuild live, and log what the script actually saw.
