@@ -28,20 +28,15 @@
 const SPREADSHEET_ID = '19EmpiQ6QrR3FYT5FlnmEns-bWilZCk9ffqgRoJVLg7g';
 const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 
-// Commission (affiliate) sources.
+// Commission (affiliate) sources — one spreadsheet per brand.
 //
-// Migration to one spreadsheet per brand, in progress:
-//   Green Roads  own workbook   (month tabs: "JUNE 2026")
-//   Hemp Bombs   own workbook   (month tabs: "JUNE 2026")
-//   Mystic Labs  still in the shared Monthly Affiliate Report
-//                (tabs: "IMPACT MYSTIC LABS DATA (JUNE)")
-//
-// The shared report cannot be dropped until Mystic Labs has its own workbook —
-// it is that brand's only source, so removing it would silently zero out Mystic
-// Labs commission rather than raising an error.
-const AFFILIATE_SPREADSHEET_ID            = '1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4';
+// Every brand now has its own workbook, each laid out the same way: a raw
+// network tab (e.g. "IMPACT MYSTIC LABS") plus one month tab per month
+// ("JUNE 2026"). The old shared Monthly Affiliate Report
+// (1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4) is no longer read at all.
 const GREENROADS_AFFILIATE_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4Oltk5hIAa62wI';
 const HEMPBOMBS_AFFILIATE_SPREADSHEET_ID  = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JjqYU5Eey7Q';
+const MYSTICLABS_AFFILIATE_SPREADSHEET_ID = '1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6ulgg';
 
 // Each source is read independently and the rows are concatenated.
 //   onlyBrands      - keep only these brands from this source (after normalization)
@@ -49,17 +44,16 @@ const HEMPBOMBS_AFFILIATE_SPREADSHEET_ID  = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9Jj
 //   defaultBrand    - used when the sheet has no Brand column (single-brand sheet)
 //   defaultPlatform - used when the tab name doesn't start with AWIN/Impact
 //
-// TO MOVE ANOTHER BRAND TO ITS OWN SPREADSHEET:
-//   1. Add a const above with the new spreadsheet's id.
-//   2. Add an entry here with onlyBrands/defaultBrand set to that brand.
-//   3. Remove that brand from the shared source's onlyBrands list, so it is
-//      not read from both places.
-//   Then run testCommissionSources() to confirm the row counts moved rather
-//   than doubled or vanished.
+// TO ADD A BRAND:
+//   1. Add a const above with its spreadsheet id.
+//   2. Add an entry here with onlyBrands/defaultBrand/defaultPlatform set.
+//   3. Run installEditTriggers() again so the new workbook also clears the
+//      cache when edited, and testCommissionSources() to check the row counts.
 //
-// Each brand is pinned to exactly one source with onlyBrands, so a brand can
-// never be counted twice, and a brand with no source shows as zero rows in
-// testCommissionSources() instead of quietly merging into another.
+// Each brand is pinned to exactly one source via onlyBrands, so a brand can
+// never be read from two workbooks and counted twice. A brand with no source
+// shows as zero rows in testCommissionSources() rather than quietly merging
+// into another.
 const COMMISSION_SOURCES = [
   {
     id:              GREENROADS_AFFILIATE_SPREADSHEET_ID,
@@ -74,10 +68,10 @@ const COMMISSION_SOURCES = [
     defaultPlatform: 'Impact'
   },
   {
-    // The only brand left in the shared report. Delete this whole entry (and
-    // AFFILIATE_SPREADSHEET_ID above) once Mystic Labs has its own workbook.
-    id:         AFFILIATE_SPREADSHEET_ID,
-    onlyBrands: ['Mystic Labs']
+    id:              MYSTICLABS_AFFILIATE_SPREADSHEET_ID,
+    onlyBrands:      ['Mystic Labs'],
+    defaultBrand:    'Mystic Labs',
+    defaultPlatform: 'Impact'
   }
 ];
 
