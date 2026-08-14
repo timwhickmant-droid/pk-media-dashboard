@@ -499,7 +499,29 @@ function readCommission() {
   return readCommissionAll().rows;
 }
 
-// Reads every "... DATA (MONTH)" tab in one source spreadsheet.
+// Recognises the two tab layouts in use, because the workbooks are not
+// consistent:
+//   "AWIN GREEN ROADS DATA (JUNE)"  shared Monthly Affiliate Report — the
+//                                   leading word names the network
+//   "JUNE 2026"                     per-brand client report — the network is
+//                                   not in the tab name, so the source's
+//                                   defaultPlatform supplies it
+// Returns null for anything else (summary tabs, raw exports, "AWIN GREEN
+// ROADS", etc.) so those are skipped rather than parsed as publisher data.
+function classifyCommissionTab(name) {
+  var dm = name.match(/\bDATA\b\s*\(([^)]*)\)/i);
+  if (dm) {
+    var pm = name.match(/^([A-Za-z.]+)\b/);
+    return { tabMonth: dm[1].trim(), platformHint: pm ? pm[1] : '' };
+  }
+  var mm = name.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (mm && MONTHS[mm[1].toLowerCase()] !== undefined) {
+    return { tabMonth: name, platformHint: '' };
+  }
+  return null;
+}
+
+// Reads every recognised month tab in one source spreadsheet.
 function readCommissionFromSource(src) {
   var ss  = SpreadsheetApp.openById(src.id);
   var out = [];
@@ -510,13 +532,11 @@ function readCommissionFromSource(src) {
 
   ss.getSheets().forEach(function(sh) {
     var name = sh.getName().trim();
-    // Only per-publisher detail tabs, e.g. "AWIN GREEN ROADS DATA (JUNE)"
-    var dm = name.match(/\bDATA\b\s*\(([^)]*)\)/i);
-    if (!dm) return;
-    var tabMonth = dm[1].trim();
+    var cls  = classifyCommissionTab(name);
+    if (!cls) return; // not a publisher-detail tab
+    var tabMonth = cls.tabMonth;
 
-    var platMatch = name.match(/^([A-Za-z.]+)\b/);
-    var platform  = platMatch ? normalizeAffPlatform(platMatch[1]) : '';
+    var platform = cls.platformHint ? normalizeAffPlatform(cls.platformHint) : '';
     if (!platform || (platform !== 'AWIN' && platform !== 'Impact')) {
       platform = src.defaultPlatform || platform;
     }
@@ -586,10 +606,11 @@ function testCommissionSources() {
     Logger.log('--- source: ' + src.id);
     try {
       var ss = SpreadsheetApp.openById(src.id);
-      var tabs = ss.getSheets()
-        .map(function(sh) { return sh.getName(); })
-        .filter(function(n) { return /\bDATA\b\s*\(([^)]*)\)/i.test(n); });
+      var all  = ss.getSheets().map(function(sh) { return sh.getName(); });
+      var tabs = all.filter(function(n) { return classifyCommissionTab(n.trim()); });
+      var skip = all.filter(function(n) { return !classifyCommissionTab(n.trim()); });
       Logger.log('matching tabs: ' + (tabs.length ? tabs.join(', ') : 'NONE — check tab naming'));
+      Logger.log('ignored tabs:  ' + (skip.length ? skip.join(', ') : 'none'));
 
       var rows = readCommissionFromSource(src);
       Logger.log('rows kept: ' + rows.length);
@@ -637,7 +658,14 @@ function affMonthKey(dateVal, tabMonth) {
   var s = String(dateVal || '').trim();
   var m = s.match(/^([A-Za-z]+)\s+(\d{4})$/);
   if (m) return capitalize(m[1]) + ' ' + m[2];
-  if (tabMonth) return capitalize(tabMonth) + ' ' + (new Date()).getFullYear();
+  if (tabMonth) {
+    // A tab may be "JUNE" (year implied) or "JUNE 2026" (year included).
+    // Appending the year unconditionally would produce "June 2026 2026".
+    var tm  = String(tabMonth).trim();
+    var tmm = tm.match(/^([A-Za-z]+)\s+(\d{4})$/);
+    if (tmm) return capitalize(tmm[1]) + ' ' + tmm[2];
+    return capitalize(tm) + ' ' + (new Date()).getFullYear();
+  }
   return s;
 }
 
