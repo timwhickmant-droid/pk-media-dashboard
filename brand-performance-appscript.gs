@@ -13,6 +13,8 @@ const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 
 // Monthly Affiliate Report spreadsheet — source for the Commission tab.
 // Per-publisher detail lives in tabs named like "AWIN GREEN ROADS DATA (JUNE)".
+// This stays as the fallback: any brand without its own workbook below is still
+// read from here.
 const AFFILIATE_SPREADSHEET_ID = '1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4';
 
 // Brand-specific client commission reports.
@@ -27,6 +29,43 @@ const MYSTIC_LABS_COMMISSION_SPREADSHEET_ID = '1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYO
 // Hemp Bombs Monthly Commission Report:
 // https://docs.google.com/spreadsheets/d/1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JqYU5Eey7Q/edit
 const HEMP_BOMBS_COMMISSION_SPREADSHEET_ID = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JqYU5Eey7Q';
+
+// ── One spreadsheet per brand ────────────────────────────────────────────────
+// This is the list to edit when a brand moves to its own commission workbook.
+// Add one entry and both the dashboard and the exporter pick it up — nothing
+// else needs changing.
+//
+//   brand            must match the normalised name (see normalizeAffBrand)
+//   reportBrandName  how the brand is written inside that workbook
+//   platform         network the rows belong to: 'AWIN' or 'Impact'
+//   spreadsheetId    the id from the workbook's URL, between /d/ and /edit
+//
+// A brand listed here has its rows read from its own workbook, replacing
+// anything for that brand in the shared Monthly Affiliate Report — so leaving
+// the old data in place cannot double-count. A brand not listed keeps coming
+// from the shared workbook, so brands can migrate one at a time.
+const CLIENT_COMMISSION_REPORTS = [
+  {
+    brand: 'Greenroads',
+    reportBrandName: 'GREEN ROADS',
+    platform: 'AWIN',
+    spreadsheetId: GREEN_ROADS_COMMISSION_SPREADSHEET_ID
+  },
+  {
+    brand: 'Mystic Labs',
+    reportBrandName: 'MYSTIC LABS',
+    platform: 'Impact',
+    spreadsheetId: MYSTIC_LABS_COMMISSION_SPREADSHEET_ID
+  },
+  {
+    brand: 'HempBombs',
+    reportBrandName: 'HEMP BOMBS',
+    platform: 'Impact',
+    spreadsheetId: HEMP_BOMBS_COMMISSION_SPREADSHEET_ID
+  }
+  // Cannabis Life has no dedicated workbook yet — it still comes from the
+  // shared Monthly Affiliate Report. Add an entry here when it gets one.
+];
 
 // Platforms to exclude entirely from the feed (lowercase). Rows on these
 // platforms are dropped before any aggregation, so revenueTrend/mtd/meta/allRows
@@ -66,6 +105,57 @@ const BRAND_ALIAS = {
   'Mystic Labs':   'Mystic Labs'
 };
 
+// Setup check
+//
+// Select checkSetup in the toolbar's function dropdown and press Run, then open
+// the execution log. Reports what is configured without printing the secret, so
+// the log is safe to screenshot.
+function checkSetup() {
+  var props  = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('SHARED_SECRET');
+  var lines  = [];
+
+  if (!secret) {
+    lines.push('SHARED_SECRET: NOT SET  <-- this is why the dashboard shows "Unauthorized (sample data)"');
+    lines.push('   Fix: Project Settings (gear icon, left sidebar) > Script Properties >');
+    lines.push('        Add script property. Name: SHARED_SECRET');
+    lines.push('        Value: the exact same string as DASHBOARD_API_SECRET in Vercel.');
+  } else {
+    // A fingerprint, not the value — enough to compare against Vercel safely.
+    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, secret);
+    var fp = digest.slice(0, 4).map(function (b) {
+      return ('0' + (b & 0xFF).toString(16)).slice(-2);
+    }).join('');
+    lines.push('SHARED_SECRET: set (' + secret.length + ' chars, fingerprint ' + fp + ')');
+    if (secret !== secret.trim()) {
+      lines.push('   WARNING: it has leading or trailing whitespace — that alone causes a mismatch.');
+    }
+    lines.push('   If the dashboard still says Unauthorized, the value differs from Vercel\'s.');
+  }
+
+  lines.push('');
+  lines.push('Spreadsheets reachable from this script:');
+
+  var report = function (label, id) {
+    if (!id) { lines.push('  ' + label + ': not configured'); return; }
+    try {
+      lines.push('  ' + label + ': ' + SpreadsheetApp.openById(id).getName());
+    } catch (err) {
+      lines.push('  ' + label + ': CANNOT OPEN — ' + err.message);
+    }
+  };
+
+  report('performance', SPREADSHEET_ID);
+  report('shared affiliate report', AFFILIATE_SPREADSHEET_ID);
+  CLIENT_COMMISSION_REPORTS.forEach(function (cfg) {
+    report(cfg.brand + ' (' + cfg.platform + ')', cfg.spreadsheetId);
+  });
+
+  var out = lines.join('\n');
+  Logger.log(out);
+  return out;
+}
+
 // Entry point
 
 function doGet(e) {
@@ -76,8 +166,22 @@ function doGet(e) {
     // server-side — the browser never sees this URL or the secret directly.
     var expectedSecret = PropertiesService.getScriptProperties().getProperty('SHARED_SECRET');
     var providedSecret  = e && e.parameter && e.parameter.secret;
-    if (!expectedSecret || providedSecret !== expectedSecret) {
-      return json({ error: 'Unauthorized' }, e);
+
+    // Three distinct causes used to collapse into one "Unauthorized", which made
+    // a misconfigured deployment indistinguishable from a wrong secret. None of
+    // these messages reveal the secret itself.
+    if (!expectedSecret) {
+      return json({ error: 'SHARED_SECRET is not set on this script. In the Apps Script editor: ' +
+        'Project Settings (gear) > Script Properties > Add script property, name SHARED_SECRET, ' +
+        'value = the same string as DASHBOARD_API_SECRET in Vercel. Run checkSetup() to verify.' }, e);
+    }
+    if (!providedSecret) {
+      return json({ error: 'Request arrived without a secret. Check APPS_SCRIPT_URL in Vercel points at ' +
+        'this deployment\'s /exec URL.' }, e);
+    }
+    if (providedSecret !== expectedSecret) {
+      return json({ error: 'Secret mismatch: SHARED_SECRET on this script does not equal ' +
+        'DASHBOARD_API_SECRET in Vercel. Re-copy one into the other (no quotes, no trailing spaces).' }, e);
     }
 
     if (e && e.parameter && e.parameter.action === 'save_goals') {
@@ -462,18 +566,13 @@ function readCommission() {
     }
   });
 
-  out = replaceCommissionRowsFromClientReport(out, {
-    spreadsheetId: GREEN_ROADS_COMMISSION_SPREADSHEET_ID,
-    brand: 'Greenroads',
-    reportBrandName: 'GREEN ROADS',
-    platform: 'AWIN'
-  });
-
-  out = replaceCommissionRowsFromClientReport(out, {
-    spreadsheetId: MYSTIC_LABS_COMMISSION_SPREADSHEET_ID,
-    brand: 'Mystic Labs',
-    reportBrandName: 'MYSTIC LABS',
-    platform: 'Impact'
+  // Every brand with its own workbook overrides whatever the shared report said.
+  // Driven by CLIENT_COMMISSION_REPORTS so adding a brand is a single entry
+  // there — previously each brand was hand-wired here, and HempBombs had an
+  // exporter and a workbook but was never added to this read path, so its
+  // figures still came from the shared report.
+  CLIENT_COMMISSION_REPORTS.forEach(function (cfg) {
+    out = replaceCommissionRowsFromClientReport(out, cfg);
   });
 
   return out;
@@ -578,31 +677,22 @@ function capitalize(w) {
   return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
 }
 
-// Manual runner for the Green Roads client spreadsheet.
-// In Apps Script, choose this function from the dropdown and click Run.
-function exportGreenRoadsCommissionReport() {
-  return exportBrandCommissionReport({
-    brand: 'Greenroads',
-    reportBrandName: 'GREEN ROADS',
-    spreadsheetId: GREEN_ROADS_COMMISSION_SPREADSHEET_ID
-  });
+// Manual runners for the client spreadsheets.
+// In Apps Script, choose one from the dropdown and click Run.
+//
+// These read their config from CLIENT_COMMISSION_REPORTS, the same list the
+// dashboard reads, so the two cannot drift apart — that drift is what left
+// HempBombs exporting to a workbook the dashboard never read back.
+function exportBrandReportByName(brand) {
+  var cfg = null;
+  CLIENT_COMMISSION_REPORTS.forEach(function (c) { if (c.brand === brand) cfg = c; });
+  if (!cfg) return { ok: false, error: 'No entry for ' + brand + ' in CLIENT_COMMISSION_REPORTS' };
+  return exportBrandCommissionReport(cfg);
 }
 
-function exportMysticLabsCommissionReport() {
-  return exportBrandCommissionReport({
-    brand: 'Mystic Labs',
-    reportBrandName: 'MYSTIC LABS',
-    spreadsheetId: MYSTIC_LABS_COMMISSION_SPREADSHEET_ID
-  });
-}
-
-function exportHempBombsCommissionReport() {
-  return exportBrandCommissionReport({
-    brand: 'HempBombs',
-    reportBrandName: 'HEMP BOMBS',
-    spreadsheetId: HEMP_BOMBS_COMMISSION_SPREADSHEET_ID
-  });
-}
+function exportGreenRoadsCommissionReport() { return exportBrandReportByName('Greenroads'); }
+function exportMysticLabsCommissionReport() { return exportBrandReportByName('Mystic Labs'); }
+function exportHempBombsCommissionReport()  { return exportBrandReportByName('HempBombs'); }
 
 function exportBrandCommissionReport(config) {
   var rows = readCommission().filter(function(r) {
