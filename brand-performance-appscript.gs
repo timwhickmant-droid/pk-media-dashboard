@@ -36,11 +36,12 @@ const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 // (1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4) is no longer read at all.
 const GREENROADS_AFFILIATE_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4Oltk5hIAa62wI';
 const HEMPBOMBS_AFFILIATE_SPREADSHEET_ID  = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JjqYU5Eey7Q';
-// NOTE: this id ends "...nR6uIgg" with a CAPITAL I, not a lowercase L. The two
-// are the same glyph in the browser URL bar, and the lowercase-L reading is
-// rejected by Google with "Illegal spreadsheet id or key". Copy this as text
-// rather than retyping it from a screenshot.
-const MYSTICLABS_AFFILIATE_SPREADSHEET_ID = '1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6uIgg';
+// NOTE: this id contains BOTH a lowercase L and a capital I, which are the same
+// glyph in a browser URL bar: "...Zd(l)Fpm..." is a lowercase L, "...nR6u(I)gg"
+// is a capital I. Two other readings were rejected by Google with "Illegal
+// spreadsheet id or key" before this was copied as text. Never retype a
+// spreadsheet id off a screenshot — copy the link and take the id from it.
+const MYSTICLABS_AFFILIATE_SPREADSHEET_ID = '1yv_EpNwjj92_ZdlFpmQVsPpLMD7MgoYOWZe9nR6uIgg';
 
 // Each source is read independently and the rows are concatenated.
 //   onlyBrands      - keep only these brands from this source (after normalization)
