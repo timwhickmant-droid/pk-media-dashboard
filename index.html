@@ -5486,11 +5486,30 @@ function buildRing(id, pct, fg, bg) {
   });
 }
 
+// Chart colours resolved against the active theme.
+//
+// Chart.js bakes colours in when the chart is constructed, so these are read at
+// build time and the charts are rebuilt when the theme changes (see applyTheme).
+// Every value here was originally hardcoded for the dark theme, which is why a
+// white line and white grid lines vanished completely on the light theme.
+function chartInk() {
+  const light = document.documentElement.classList.contains('theme-light');
+  return {
+    grid: light ? 'rgba(15,23,42,0.08)'  : 'rgba(255,255,255,0.04)',
+    tick: light ? '#64748b'              : '#4a5568',
+    // Stroke used until the gradient is applied on the next animation frame.
+    // If that frame runs before the chart area exists it is never applied, so
+    // this fallback has to be visible on its own — '#fff' was not.
+    line: light ? '#6366f1'              : '#ffffff'
+  };
+}
+
 function buildSpending(daily) {
   if (!canBuildCharts()) return;
   destroy('bar');
   const canvas = document.getElementById('barChart');
   const ctx    = canvas.getContext('2d');
+  const ink    = chartInk();
   const labels = daily.map(r => r.date);
   const data   = daily.map(r => num(r.spend) || 0);
   const yMax   = Math.ceil((Math.max(...data, 1) * 1.15) / 500) * 500;
@@ -5504,7 +5523,7 @@ function buildSpending(daily) {
       pointHoverBackgroundColor: '#fff',
       pointHoverBorderColor: '#8b5cf6',
       pointHoverBorderWidth: 2,
-      borderColor: '#fff', backgroundColor: 'transparent'
+      borderColor: ink.line, backgroundColor: 'transparent'
     }]},
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -5522,16 +5541,16 @@ function buildSpending(daily) {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false },
+          grid: { color: ink.grid, drawTicks: false },
           border: { color: 'transparent' },
-          ticks: { color: '#4a5568', font: { size: 10 }, maxRotation: 0, maxTicksLimit: 7, padding: 8 }
+          ticks: { color: ink.tick, font: { size: 10 }, maxRotation: 0, maxTicksLimit: 7, padding: 8 }
         },
         y: {
           position: 'left',
-          grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false },
+          grid: { color: ink.grid, drawTicks: false },
           border: { color: 'transparent', dash: [4,4] },
           ticks: {
-            color: '#4a5568', font: { size: 10 }, padding: 10,
+            color: ink.tick, font: { size: 10 }, padding: 10,
             callback: v => '$' + (v >= 1000 ? (v/1000).toFixed(0) + 'K' : v)
           },
           min: 0, max: yMax
@@ -8933,7 +8952,7 @@ function campShowStats(name) {
       new Chart(canvas, { type:'line', data:{
         labels: (row.trendLabels || row.trendVals.map((_,i) => 'W'+(i+1))),
         datasets:[{ data:row.trendVals, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.08)', borderWidth:2, pointRadius:3, tension:0.4, fill:true }]
-      }, options:{ plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.05)'}}}, responsive:true, animation:{duration:400} }});
+      }, options:{ plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}},y:{grid:{color:chartInk().grid}}}, responsive:true, animation:{duration:400} }});
     } catch(e){}
   }, 50);
 }
@@ -9698,6 +9717,14 @@ function applyTheme(theme) {
     if (!prefersDark) html.classList.add('theme-light');
   }
   try { localStorage.setItem('bp_theme', theme); } catch(e) {}
+
+  // Chart.js resolves colours at construction, so switching the CSS class alone
+  // leaves charts drawn for the old theme. applyView() rebuilds them from the
+  // current data — renderAll() would too, but it also resets the selected
+  // week/month, which would silently throw away the user's filter.
+  if (typeof applyView === 'function' && STATE && STATE.data) {
+    try { applyView(); } catch (e) { /* never let a repaint break theming */ }
+  }
 }
 
 function selectSwatch(el) {
