@@ -36,7 +36,11 @@ const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 // (1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4) is no longer read at all.
 const GREENROADS_AFFILIATE_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4Oltk5hIAa62wI';
 const HEMPBOMBS_AFFILIATE_SPREADSHEET_ID  = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JjqYU5Eey7Q';
-const MYSTICLABS_AFFILIATE_SPREADSHEET_ID = '1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6ulgg';
+// NOTE: this id ends "...nR6uIgg" with a CAPITAL I, not a lowercase L. The two
+// are the same glyph in the browser URL bar, and the lowercase-L reading is
+// rejected by Google with "Illegal spreadsheet id or key". Copy this as text
+// rather than retyping it from a screenshot.
+const MYSTICLABS_AFFILIATE_SPREADSHEET_ID = '1yv_EpNwjj92_ZdIFpmQVsPpLMD7MgoYOWZe9nR6uIgg';
 
 // Each source is read independently and the rows are concatenated.
 //   onlyBrands      - keep only these brands from this source (after normalization)
