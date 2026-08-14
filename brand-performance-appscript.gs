@@ -30,11 +30,18 @@ const SHEET_NAME     = ''; // leave blank to auto-pick the latest "MMM YYYY" tab
 
 // Commission (affiliate) sources.
 //
-// Per-publisher detail lives in tabs named like "AWIN GREEN ROADS DATA (JUNE)".
-// Green Roads now lives in its own spreadsheet; every other brand still comes
-// from the shared Monthly Affiliate Report.
+// Migration to one spreadsheet per brand, in progress:
+//   Green Roads  own workbook   (month tabs: "JUNE 2026")
+//   Hemp Bombs   own workbook   (month tabs: "JUNE 2026")
+//   Mystic Labs  still in the shared Monthly Affiliate Report
+//                (tabs: "IMPACT MYSTIC LABS DATA (JUNE)")
+//
+// The shared report cannot be dropped until Mystic Labs has its own workbook —
+// it is that brand's only source, so removing it would silently zero out Mystic
+// Labs commission rather than raising an error.
 const AFFILIATE_SPREADSHEET_ID            = '1umNx83eliMJqP_b3xdfTPthzrPt7PeO02h63wjXDRj4';
 const GREENROADS_AFFILIATE_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4Oltk5hIAa62wI';
+const HEMPBOMBS_AFFILIATE_SPREADSHEET_ID  = '1uKrvr7KgJNTP_dBQKX66FmoMmsUrd_p9JjqYU5Eey7Q';
 
 // Each source is read independently and the rows are concatenated.
 //   onlyBrands      - keep only these brands from this source (after normalization)
@@ -44,20 +51,33 @@ const GREENROADS_AFFILIATE_SPREADSHEET_ID = '1dkaw3PtYpsl2Vi5DYI53E62Q6jTbu4Oltk
 //
 // TO MOVE ANOTHER BRAND TO ITS OWN SPREADSHEET:
 //   1. Add a const above with the new spreadsheet's id.
-//   2. Add its id to the excludeBrands list of the shared source below, so the
-//      brand stops being read twice.
-//   3. Add a new entry here with onlyBrands/defaultBrand set to that brand.
-//   Then run testCommissionSources() to confirm both sources look right.
+//   2. Add an entry here with onlyBrands/defaultBrand set to that brand.
+//   3. Remove that brand from the shared source's onlyBrands list, so it is
+//      not read from both places.
+//   Then run testCommissionSources() to confirm the row counts moved rather
+//   than doubled or vanished.
+//
+// Each brand is pinned to exactly one source with onlyBrands, so a brand can
+// never be counted twice, and a brand with no source shows as zero rows in
+// testCommissionSources() instead of quietly merging into another.
 const COMMISSION_SOURCES = [
-  {
-    id:            AFFILIATE_SPREADSHEET_ID,
-    excludeBrands: ['Greenroads']
-  },
   {
     id:              GREENROADS_AFFILIATE_SPREADSHEET_ID,
     onlyBrands:      ['Greenroads'],
     defaultBrand:    'Greenroads',
     defaultPlatform: 'AWIN'
+  },
+  {
+    id:              HEMPBOMBS_AFFILIATE_SPREADSHEET_ID,
+    onlyBrands:      ['HempBombs'],
+    defaultBrand:    'HempBombs',
+    defaultPlatform: 'Impact'
+  },
+  {
+    // The only brand left in the shared report. Delete this whole entry (and
+    // AFFILIATE_SPREADSHEET_ID above) once Mystic Labs has its own workbook.
+    id:         AFFILIATE_SPREADSHEET_ID,
+    onlyBrands: ['Mystic Labs']
   }
 ];
 
